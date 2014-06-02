@@ -840,6 +840,21 @@ static int xemacps_mii_init(struct net_local *lp)
 	struct resource res;
 	struct device_node *np = of_get_parent(lp->phy_node);
 	struct device_node *npp;
+	int ret=0;
+
+	/* aas: patch to reuse the mdio bus*/
+ 	struct device* dev = &lp->pdev->dev;
+
+	if ((lp->mii_bus = of_mdio_find_bus(np))){
+		dev_info(dev, "re-using mdio bus");
+		return 0;
+	}
+
+	/* aas: ViZynqBoard rev=A1112A1 needs this...*/
+	ret = gpio_request(7, "ethx_reset_n");
+	gpio_direction_output(7, 1);udelay(1);
+	gpio_direction_output(7, 0);udelay(1);
+	gpio_direction_output(7, 1);
 
 	lp->mii_bus = mdiobus_alloc();
 	if (lp->mii_bus == NULL) {
