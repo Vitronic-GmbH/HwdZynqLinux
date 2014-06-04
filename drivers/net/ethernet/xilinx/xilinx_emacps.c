@@ -42,6 +42,7 @@
 #include <linux/of_address.h>
 #include <linux/of_mdio.h>
 #include <linux/timer.h>
+#include <linux/gpio.h>
 
 /************************** Constant Definitions *****************************/
 

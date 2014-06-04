@@ -25,6 +25,13 @@
 #include <linux/spinlock.h>
 #include "inv_mpu_iio.h"
 
+/* aas: default platform data */
+static struct inv_mpu6050_platform_data inv_def_platform_data = {
+	.orientation = {-1,  0,  0,
+                     0,  1,  0,
+                     0,  0, -1 }
+};
+
 /*
  * this is the gyro scale translated from dynamic range plus/minus
  * {250, 500, 1000, 2000} to rad/s
@@ -675,8 +682,13 @@ static int inv_mpu_probe(struct i2c_client *client,
 	}
 	st = iio_priv(indio_dev);
 	st->client = client;
-	st->plat_data = *(struct inv_mpu6050_platform_data
-				*)dev_get_platdata(&client->dev);
+	
+	/*aas: default data*/
+	if (!dev_get_platdata(&client->dev))
+		st->plat_data = inv_def_platform_data;
+	else
+		st->plat_data = *(struct inv_mpu6050_platform_data*) dev_get_platdata(&client->dev);
+ 
 	/* power is turned on inside check chip type*/
 	result = inv_check_and_setup_chip(st, id);
 	if (result)
