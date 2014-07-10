@@ -158,15 +158,17 @@
 				phy0: phy@0 {
 					compatible = "marvell,88e1512";
 					device_type = "ethernet-phy";
-					reg = <0>;					
+					reg = <0>;
+					marvell,reg-init = <3 16 0xff00 0x1e 3 17 0xfff0 0x0a>;
 				} ;
 				phy1: phy@1 {
 					compatible = "marvell,88e1512";
 					device_type = "ethernet-phy";
-					reg = <1>;					
+					reg = <1>;
+					marvell,reg-init = <3 16 0xff00 0x1e 3 17 0xfff0 0x0a>;
 				} ;
 			} ;
-		} ;		
+		} ;
 		
 		ps7_ethernet_1: ps7-ethernet@e000c000 {
 			#address-cells = <1>;
@@ -192,7 +194,7 @@
 			xlnx,has-mdio = <0x0>;
 			xlnx,ptp-enet-clock = <111111115>;
 		} ;
-				
+		
 		ps7_globaltimer_0: ps7-globaltimer@f8f00200 {
 			compatible = "xlnx,ps7-globaltimer-1.00.a";
 			reg = < 0xf8f00200 0x100 >;
@@ -475,11 +477,10 @@
 			interrupts = <0x0 44 0x4>;
 			phy_type = "ulpi";
 			reg = <0xe0003000 0x1000>;
-			usb-reset = <&ps7_gpio_0 7 0>;
+			xlnx,usb-reset = <&ps7_gpio_0 9 0>;
 		};
 
 		ViAXI2PL: ViAXI2PL@40000000 {
-		/*	reg = < 0x40000000 0x20000000 >; */
 			reg = < 0x40000000 0x00400000 >;
 		};   
 		

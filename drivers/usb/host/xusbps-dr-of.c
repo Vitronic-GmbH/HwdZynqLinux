@@ -29,6 +29,7 @@
 #include <linux/string.h>
 #include <linux/clk.h>
 #include <linux/usb/ulpi.h>
+#include <linux/gpio.h>
 
 #include "ehci-xilinx-usbps.h"
 
@@ -199,9 +200,16 @@ static int xusbps_dr_of_probe(struct platform_device *ofdev)
 	}
 
 	pdata->clk = hdata->clk;
-
+	
 	/* If ULPI phy type, set it up */
 	if (pdata->phy_mode == XUSBPS_USB2_PHY_ULPI) {
+		
+		/* aas: ViZynqBoard rev=A1112B1 needs this...*/
+		gpio_request(9, "ulpi_reset_n");
+		gpio_direction_output(9, 1);udelay(1);
+		gpio_direction_output(9, 0);udelay(1);
+		gpio_direction_output(9, 1);
+
 		pdata->ulpi = otg_ulpi_create(&ulpi_viewport_access_ops,
 			ULPI_OTG_DRVVBUS | ULPI_OTG_DRVVBUS_EXT);
 		if (pdata->ulpi) {
