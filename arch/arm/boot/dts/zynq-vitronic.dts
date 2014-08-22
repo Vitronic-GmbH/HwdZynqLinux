@@ -156,13 +156,13 @@
 				#address-cells = <1>;
 				#size-cells = <0>;	
 				phy0: phy@0 {
-					compatible = "marvell,88e1512";
+					compatible = "marvell,88e1510";
 					device_type = "ethernet-phy";
 					reg = <0>;
 					marvell,reg-init = <3 16 0xf000 0x825 3 17 0xfff0 0x0a>;
 				} ;
 				phy1: phy@1 {
-					compatible = "marvell,88e1512";
+					compatible = "marvell,88e1510";
 					device_type = "ethernet-phy";
 					reg = <1>;
 					marvell,reg-init = <3 16 0xf000 0x825 3 17 0xfff0 0x0a>;
@@ -226,11 +226,11 @@
 			#address-cells = <1>;
 			#size-cells = <0>;			
 			
-		/*	rtc@68 {
+			rtc@68 {
 				compatible = "bq32000";
 				reg = <0x68>;
 			};
-		*/
+		
 			imu6050@69 {
 				compatible = "invensense,mpu6050";
 				reg = <0x69>;
@@ -242,8 +242,8 @@
 				interrupt-parent = <&ps7_scugic_0>;
 				interrupts = <0 36 1>;
 			};
-		
 		} ;
+		
 /*		
 		ps7_spi_0: ps7-spi@e0006000 {
 			clock-names = "ref_clk", "aper_clk";
@@ -269,7 +269,7 @@
 			};
 		} ;		
 */
-		ps7_spi_0: ps7-spi@e0007000 {
+		ps7_spi_1: ps7-spi@e0007000 {
 			clock-names = "ref_clk", "aper_clk";
 			clocks = <0x3 26>, <0x3 35>;
 			#address-cells=<0x1>;
@@ -480,6 +480,17 @@
 			xlnx,usb-reset = <&ps7_gpio_0 9 0>;
 		};
 
+		ps7_can_0: ps7-can@e0008000 {
+			clock-names = "ref_clk", "aper_clk";
+			clocks = <0x3 0x13 0x3 0x24>;
+			compatible = "xlnx,ps7-can-1.00.a", "xlnx,ps7-can";
+			interrupt-parent = <&ps7_scugic_0>;
+			interrupts = <0 28 4>; 
+			tx-fifo-depth = <0x40>;
+			rx-fifo-depth = <0x40>;
+			reg = <0xe0008000 0x1000>;
+		} ;
+		
 		ViAXI2PL: ViAXI2PL@40000000 {
 			reg = < 0x40000000 0x00400000 >;
 		};   
