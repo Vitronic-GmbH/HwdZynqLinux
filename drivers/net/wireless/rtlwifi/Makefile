@@ -21,11 +21,12 @@ rtlwifi-objs	+= usb.o
 endif
 
 obj-$(CONFIG_RTL8192C_COMMON)	+= rtl8192c/
-obj-$(CONFIG_RTL8192CE)		+= rtl8192ce/
-obj-$(CONFIG_RTL8192CU)		+= rtl8192cu/
-obj-$(CONFIG_RTL8192SE)		+= rtl8192se/
-obj-$(CONFIG_RTL8192DE)		+= rtl8192de/
-obj-$(CONFIG_RTL8723AE)		+= rtl8723ae/
-obj-$(CONFIG_RTL8188EE)		+= rtl8188ee/
+obj-$(CONFIG_RTL8192CE)		    += rtl8192ce/
+obj-$(CONFIG_RTL8192CU)		    += rtl8192cu/
+obj-$(CONFIG_RTL8192SE)		    += rtl8192se/
+obj-$(CONFIG_RTL8192DE)		    += rtl8192de/
+obj-$(CONFIG_RTL8723AE)		    += rtl8723ae/
+obj-$(CONFIG_RTL8188EE)		    += rtl8188ee/
+obj-$(CONFIG_RTL8812AU_8821AU)  += rtl8812au_8821au/
 
 ccflags-y += -D__CHECK_ENDIAN__

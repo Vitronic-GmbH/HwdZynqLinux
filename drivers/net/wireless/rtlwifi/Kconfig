@@ -73,6 +73,13 @@ config RTL8192CU
 	wireless network adapters.
 
 	If you choose to build it as a module, it will be called rtl8192cu
+	
+config RTL8812AU_8821AU
+	tristate "Realtek 8812AU/8821AU USB WiFi"
+	depends on RTLWIFI && USB
+	---help---
+	  Help message of RTL8812AU/RTL8821AU
+	  
 
 config RTL8192C_COMMON
 	tristate
