@@ -851,11 +851,14 @@ static int xemacps_mii_init(struct net_local *lp)
 		return 0;
 	}
 
-	/* aas: ViZynqBoard rev=A1112A1 needs this...*/
-	ret = gpio_request(7, "ethx_reset_n");
-	gpio_direction_output(7, 1);udelay(1);
-	gpio_direction_output(7, 0);udelay(1);
-	gpio_direction_output(7, 1);
+	/* aas: ViZynqBoard rev=A1112A1/B1 needs this...*/
+	ret = gpio_request(9, "ethx_reset_n");
+	gpio_direction_output(9, 1);udelay(100);
+	gpio_direction_output(9, 0);
+	for(i=0;i<10;i++){
+	    udelay(1000);
+	}
+	gpio_direction_output(9, 1);
 
 	lp->mii_bus = mdiobus_alloc();
 	if (lp->mii_bus == NULL) {
