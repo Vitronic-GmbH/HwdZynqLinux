@@ -963,8 +963,8 @@ ifeq ($(CONFIG_PLATFORM_VITRONIC_ZYNQ), y)
 EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN
 ARCH := arm
 CROSS_COMPILE := arm-xilinx-linux-gnueabi-
-KVER  := 3.10.0
-KSRC = /home/user/ZYNQ/HwdZynqLinux
+#KVER  := 3.15.0
+#KSRC = /home/user/ZYNQ/HwdZynqLinux
 endif
 
 ifeq ($(CONFIG_MULTIDRV), y)	

@@ -2240,7 +2240,7 @@ static int rtw_cfg80211_set_key_mgt(struct security_priv *psecuritypriv, u32 key
 	return 0;
 }
 
-static int rtw_cfg80211_set_wpa_ie(_adapter *padapter, u8 *pie, size_t ielen)
+static int rtw_cfg80211_set_wpa_ie(_adapter *padapter, const u8 *pie, size_t ielen)
 {
 	u8 *buf=NULL, *pos=NULL;	
 	u32 left; 	
@@ -2474,7 +2474,7 @@ static int cfg80211_rtw_connect(struct wiphy *wiphy, struct net_device *ndev,
 	NDIS_802_11_AUTHENTICATION_MODE authmode;	
 	NDIS_802_11_SSID ndis_ssid;	
 	u8 *dst_ssid, *src_ssid;
-	u8 *dst_bssid, *src_bssid;
+	u8 *dst_bssid/*, *src_bssid*/;
 	//u8 matched_by_bssid=_FALSE;
 	//u8 matched_by_ssid=_FALSE;
 	u8 matched=_FALSE;
@@ -2598,9 +2598,9 @@ static int cfg80211_rtw_connect(struct wiphy *wiphy, struct net_device *ndev,
 
 		if (sme->bssid)
 		{
-			src_bssid = sme->bssid;
+			//src_bssid = sme->bssid;
 
-			if ((_rtw_memcmp(dst_bssid, src_bssid, ETH_ALEN)) == _TRUE)
+			if ((_rtw_memcmp(dst_bssid, sme->bssid, ETH_ALEN)) == _TRUE)
 			{
 				DBG_8192C("matched by bssid\n");
 
