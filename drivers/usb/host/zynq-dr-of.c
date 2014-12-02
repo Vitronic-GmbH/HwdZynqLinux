@@ -26,6 +26,7 @@
 #include <linux/string.h>
 #include <linux/clk.h>
 #include <linux/usb/ulpi.h>
+#include <linux/gpio.h>
 
 #include "ehci-zynq.h"
 
@@ -199,6 +200,12 @@ static int zynq_dr_of_probe(struct platform_device *ofdev)
 
 	/* If ULPI phy type, set it up */
 	if (pdata->phy_mode == ZYNQ_USB2_PHY_ULPI) {
+		/* aas: ViZynqBoard rev=A1112B1 needs this...*/
+		gpio_request(7, "ulpi_reset_n");
+		gpio_direction_output(7, 1);udelay(1);
+		gpio_direction_output(7, 0);udelay(1);
+		gpio_direction_output(7, 1);
+
 		pdata->ulpi = otg_ulpi_create(&ulpi_viewport_access_ops,
 			ULPI_OTG_DRVVBUS | ULPI_OTG_DRVVBUS_EXT);
 		if (pdata->ulpi) {
