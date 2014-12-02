@@ -645,7 +645,7 @@ void smtc_prepare_cpus(int cpus)
  * (unsigned long)idle->thread_info the gp
  *
  */
-void __cpuinit smtc_boot_secondary(int cpu, struct task_struct *idle)
+void smtc_boot_secondary(int cpu, struct task_struct *idle)
 {
 	extern u32 kernelsp[NR_CPUS];
 	unsigned long flags;
@@ -1007,7 +1007,7 @@ static void __irq_entry smtc_clock_tick_interrupt(void)
 	int irq = MIPS_CPU_IRQ_BASE + 1;
 
 	irq_enter();
-	kstat_incr_irqs_this_cpu(irq, irq_to_desc(irq));
+	kstat_incr_irq_this_cpu(irq);
 	cd = &per_cpu(mips_clockevent_device, cpu);
 	cd->event_handler(cd);
 	irq_exit();

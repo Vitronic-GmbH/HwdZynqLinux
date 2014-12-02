@@ -1277,13 +1277,14 @@ int ubifs_setattr(struct dentry *dentry, struct iattr *attr)
 	return err;
 }
 
-static void ubifs_invalidatepage(struct page *page, unsigned long offset)
+static void ubifs_invalidatepage(struct page *page, unsigned int offset,
+				 unsigned int length)
 {
 	struct inode *inode = page->mapping->host;
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 
 	ubifs_assert(PagePrivate(page));
-	if (offset)
+	if (offset || length < PAGE_CACHE_SIZE)
 		/* Partial page remains dirty */
 		return;
 
@@ -1537,6 +1538,7 @@ out_unlock:
 
 static const struct vm_operations_struct ubifs_file_vm_ops = {
 	.fault        = filemap_fault,
+	.map_pages = filemap_map_pages,
 	.page_mkwrite = ubifs_vm_page_mkwrite,
 	.remap_pages = generic_file_remap_pages,
 };

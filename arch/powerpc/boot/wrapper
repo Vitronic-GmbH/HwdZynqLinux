@@ -150,21 +150,29 @@ make_space=y
 link_address=`${CROSS}size -x ${kernel} | grep ${kernel} | awk '{printf("0x%08x", and($4 + 0x0fffff, 0xfffe0000))}'`
 
 case "$platform" in
+of)
+    platformo="$object/of.o $object/epapr.o"
+    make_space=n
+    ;;
 pseries)
-    platformo=$object/of.o
+    platformo="$object/of.o $object/epapr.o"
     link_address='0x4000000'
+    make_space=n
     ;;
 maple)
-    platformo=$object/of.o
+    platformo="$object/of.o $object/epapr.o"
     link_address='0x400000'
+    make_space=n
     ;;
 pmac|chrp)
-    platformo=$object/of.o
+    platformo="$object/of.o $object/epapr.o"
+    make_space=n
     ;;
 coff)
-    platformo="$object/crt0.o $object/of.o"
+    platformo="$object/crt0.o $object/of.o $object/epapr.o"
     lds=$object/zImage.coff.lds
     link_address='0x500000'
+    make_space=n
     pie=
     ;;
 miboot|uboot|uboot-fit)
@@ -256,8 +264,13 @@ treeboot-iss4xx-mpic)
     platformo="$object/treeboot-iss4xx.o"
     ;;
 epapr)
+    platformo="$object/epapr.o $object/epapr-wrapper.o"
     link_address='0x20000000'
     pie=-pie
+    ;;
+mvme5100)
+    platformo="$object/fixed-head.o $object/mvme5100.o"
+    binary=y
     ;;
 esac
 

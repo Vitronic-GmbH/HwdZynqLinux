@@ -211,7 +211,7 @@ static int __must_check wl12xx_spi_raw_read(struct device *child, int addr,
 	u32 chunk_len;
 
 	while (len > 0) {
-		chunk_len = min((size_t)WSPI_MAX_CHUNK_SIZE, len);
+		chunk_len = min_t(size_t, WSPI_MAX_CHUNK_SIZE, len);
 
 		cmd = &wl->buffer_cmd;
 		busy_buf = wl->buffer_busyword;
@@ -285,7 +285,7 @@ static int __must_check wl12xx_spi_raw_write(struct device *child, int addr,
 	cmd = &commands[0];
 	i = 0;
 	while (len > 0) {
-		chunk_len = min((size_t)WSPI_MAX_CHUNK_SIZE, len);
+		chunk_len = min_t(size_t, WSPI_MAX_CHUNK_SIZE, len);
 
 		*cmd = 0;
 		*cmd |= WSPI_CMD_WRITE;
@@ -335,7 +335,7 @@ static int wl1271_probe(struct spi_device *spi)
 	if (!pdev_data)
 		goto out;
 
-	pdev_data->pdata = spi->dev.platform_data;
+	pdev_data->pdata = dev_get_platdata(&spi->dev);
 	if (!pdev_data->pdata) {
 		dev_err(&spi->dev, "no platform data\n");
 		ret = -ENODEV;
@@ -434,19 +434,7 @@ static struct spi_driver wl1271_spi_driver = {
 	.remove		= wl1271_remove,
 };
 
-static int __init wl1271_init(void)
-{
-	return spi_register_driver(&wl1271_spi_driver);
-}
-
-static void __exit wl1271_exit(void)
-{
-	spi_unregister_driver(&wl1271_spi_driver);
-}
-
-module_init(wl1271_init);
-module_exit(wl1271_exit);
-
+module_spi_driver(wl1271_spi_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Luciano Coelho <coelho@ti.com>");
 MODULE_AUTHOR("Juuso Oikarinen <juuso.oikarinen@nokia.com>");

@@ -46,7 +46,9 @@
 #include <linux/sched.h>
 #include <linux/sched/sysctl.h>
 #include <linux/sched/rt.h>
+#include <linux/sched/deadline.h>
 #include <linux/timer.h>
+#include <linux/freezer.h>
 
 #include <asm/uaccess.h>
 
@@ -166,19 +168,6 @@ struct hrtimer_clock_base *lock_hrtimer_base(const struct hrtimer *timer,
 	}
 }
 
-
-/*
- * Get the preferred target CPU for NOHZ
- */
-static int hrtimer_get_target(int this_cpu, int pinned)
-{
-#ifdef CONFIG_NO_HZ_COMMON
-	if (!pinned && get_sysctl_timer_migration() && idle_cpu(this_cpu))
-		return get_nohz_timer_target();
-#endif
-	return this_cpu;
-}
-
 /*
  * With HIGHRES=y we do not migrate the timer when it is expiring
  * before the next event on the target cpu because we cannot reprogram
@@ -212,7 +201,7 @@ switch_hrtimer_base(struct hrtimer *timer, struct hrtimer_clock_base *base,
 	struct hrtimer_clock_base *new_base;
 	struct hrtimer_cpu_base *new_cpu_base;
 	int this_cpu = smp_processor_id();
-	int cpu = hrtimer_get_target(this_cpu, pinned);
+	int cpu = get_nohz_timer_target(pinned);
 	int basenum = base->index;
 
 again:
@@ -245,6 +234,11 @@ again:
 			goto again;
 		}
 		timer->base = new_base;
+	} else {
+		if (cpu != this_cpu && hrtimer_check_target(timer, new_base)) {
+			cpu = this_cpu;
+			goto again;
+		}
 	}
 	return new_base;
 }
@@ -580,6 +574,23 @@ hrtimer_force_reprogram(struct hrtimer_cpu_base *cpu_base, int skip_equal)
 
 	cpu_base->expires_next.tv64 = expires_next.tv64;
 
+	/*
+	 * If a hang was detected in the last timer interrupt then we
+	 * leave the hang delay active in the hardware. We want the
+	 * system to make progress. That also prevents the following
+	 * scenario:
+	 * T1 expires 50ms from now
+	 * T2 expires 5s from now
+	 *
+	 * T1 is removed, so this code is called and would reprogram
+	 * the hardware to 5s from now. Any hrtimer_start after that
+	 * will not reprogram the hardware due to hang_detected being
+	 * set. So we'd effectivly block all timers until the T2 event
+	 * fires.
+	 */
+	if (cpu_base->hang_detected)
+		return;
+
 	if (cpu_base->expires_next.tv64 != KTIME_MAX)
 		tick_program_event(cpu_base->expires_next, 1);
 }
@@ -721,17 +732,20 @@ static int hrtimer_switch_to_hres(void)
 	return 1;
 }
 
+static void clock_was_set_work(struct work_struct *work)
+{
+	clock_was_set();
+}
+
+static DECLARE_WORK(hrtimer_work, clock_was_set_work);
+
 /*
- * Called from timekeeping code to reprogramm the hrtimer interrupt
- * device. If called from the timer interrupt context we defer it to
- * softirq context.
+ * Called from timekeeping and resume code to reprogramm the hrtimer
+ * interrupt device on all cpus.
  */
 void clock_was_set_delayed(void)
 {
-	struct hrtimer_cpu_base *cpu_base = &__get_cpu_var(hrtimer_bases);
-
-	cpu_base->clock_was_set = 1;
-	__raise_softirq_irqoff(HRTIMER_SOFTIRQ);
+	schedule_work(&hrtimer_work);
 }
 
 #else
@@ -773,15 +787,19 @@ void clock_was_set(void)
 
 /*
  * During resume we might have to reprogram the high resolution timer
- * interrupt (on the local CPU):
+ * interrupt on all online CPUs.  However, all other CPUs will be
+ * stopped with IRQs interrupts disabled so the clock_was_set() call
+ * must be deferred.
  */
 void hrtimers_resume(void)
 {
 	WARN_ONCE(!irqs_disabled(),
 		  KERN_INFO "hrtimers_resume() called with IRQs enabled!");
 
+	/* Retrigger on the local CPU */
 	retrigger_next_event(NULL);
-	timerfd_clock_was_set();
+	/* And schedule a retrigger for all others */
+	clock_was_set_delayed();
 }
 
 static inline void timer_stats_hrtimer_set_start_info(struct hrtimer *timer)
@@ -972,11 +990,8 @@ int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 	/* Remove an active timer from the queue: */
 	ret = remove_hrtimer(timer, base);
 
-	/* Switch the timer base, if necessary: */
-	new_base = switch_hrtimer_base(timer, base, mode & HRTIMER_MODE_PINNED);
-
 	if (mode & HRTIMER_MODE_REL) {
-		tim = ktime_add_safe(tim, new_base->get_time());
+		tim = ktime_add_safe(tim, base->get_time());
 		/*
 		 * CONFIG_TIME_LOW_RES is a temporary way for architectures
 		 * to signal that they simply return xtime in
@@ -990,6 +1005,9 @@ int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 	}
 
 	hrtimer_set_expires_range_ns(timer, tim, delta_ns);
+
+	/* Switch the timer base, if necessary: */
+	new_base = switch_hrtimer_base(timer, base, mode & HRTIMER_MODE_PINNED);
 
 	timer_stats_hrtimer_set_start_info(timer);
 
@@ -1432,13 +1450,6 @@ void hrtimer_peek_ahead_timers(void)
 
 static void run_hrtimer_softirq(struct softirq_action *h)
 {
-	struct hrtimer_cpu_base *cpu_base = &__get_cpu_var(hrtimer_bases);
-
-	if (cpu_base->clock_was_set) {
-		cpu_base->clock_was_set = 0;
-		clock_was_set();
-	}
-
 	hrtimer_peek_ahead_timers();
 }
 
@@ -1545,7 +1556,7 @@ static int __sched do_nanosleep(struct hrtimer_sleeper *t, enum hrtimer_mode mod
 			t->task = NULL;
 
 		if (likely(t->task))
-			schedule();
+			freezable_schedule();
 
 		hrtimer_cancel(&t->timer);
 		mode = HRTIMER_MODE_ABS;
@@ -1609,7 +1620,7 @@ long hrtimer_nanosleep(struct timespec *rqtp, struct timespec __user *rmtp,
 	unsigned long slack;
 
 	slack = current->timer_slack_ns;
-	if (rt_task(current))
+	if (dl_task(current) || rt_task(current))
 		slack = 0;
 
 	hrtimer_init_on_stack(&t.timer, clockid, mode);
@@ -1658,7 +1669,7 @@ SYSCALL_DEFINE2(nanosleep, struct timespec __user *, rqtp,
 /*
  * Functions related to boot-time initialization:
  */
-static void __cpuinit init_hrtimers_cpu(int cpu)
+static void init_hrtimers_cpu(int cpu)
 {
 	struct hrtimer_cpu_base *cpu_base = &per_cpu(hrtimer_bases, cpu);
 	int i;
@@ -1739,7 +1750,7 @@ static void migrate_hrtimers(int scpu)
 
 #endif /* CONFIG_HOTPLUG_CPU */
 
-static int __cpuinit hrtimer_cpu_notify(struct notifier_block *self,
+static int hrtimer_cpu_notify(struct notifier_block *self,
 					unsigned long action, void *hcpu)
 {
 	int scpu = (long)hcpu;
@@ -1772,7 +1783,7 @@ static int __cpuinit hrtimer_cpu_notify(struct notifier_block *self,
 	return NOTIFY_OK;
 }
 
-static struct notifier_block __cpuinitdata hrtimers_nb = {
+static struct notifier_block hrtimers_nb = {
 	.notifier_call = hrtimer_cpu_notify,
 };
 

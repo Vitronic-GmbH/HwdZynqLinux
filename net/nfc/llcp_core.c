@@ -12,9 +12,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the
- * Free Software Foundation, Inc.,
- * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #define pr_fmt(fmt) "llcp: %s: " fmt, __func__
@@ -29,7 +27,7 @@
 
 static u8 llcp_magic[3] = {0x46, 0x66, 0x6d};
 
-static struct list_head llcp_devices;
+static LIST_HEAD(llcp_devices);
 
 static void nfc_llcp_rx_skb(struct nfc_llcp_local *local, struct sk_buff *skb);
 
@@ -295,9 +293,9 @@ static void nfc_llcp_sdreq_timer(unsigned long data)
 
 struct nfc_llcp_local *nfc_llcp_find_local(struct nfc_dev *dev)
 {
-	struct nfc_llcp_local *local, *n;
+	struct nfc_llcp_local *local;
 
-	list_for_each_entry_safe(local, n, &llcp_devices, list)
+	list_for_each_entry(local, &llcp_devices, list)
 		if (local->dev == dev)
 			return local;
 
@@ -537,6 +535,7 @@ static int nfc_llcp_build_gb(struct nfc_llcp_local *local)
 	u8 *lto_tlv, lto_length;
 	u8 *wks_tlv, wks_length;
 	u8 *miux_tlv, miux_length;
+	__be16 wks = cpu_to_be16(local->local_wks);
 	u8 gb_len = 0;
 	int ret = 0;
 
@@ -549,8 +548,7 @@ static int nfc_llcp_build_gb(struct nfc_llcp_local *local)
 	gb_len += lto_length;
 
 	pr_debug("Local wks 0x%lx\n", local->local_wks);
-	wks_tlv = nfc_llcp_build_tlv(LLCP_TLV_WKS, (u8 *)&local->local_wks, 2,
-				     &wks_length);
+	wks_tlv = nfc_llcp_build_tlv(LLCP_TLV_WKS, (u8 *)&wks, 2, &wks_length);
 	gb_len += wks_length;
 
 	miux_tlv = nfc_llcp_build_tlv(LLCP_TLV_MIUX, (u8 *)&local->miux, 0,
@@ -611,14 +609,16 @@ u8 *nfc_llcp_general_bytes(struct nfc_dev *dev, size_t *general_bytes_len)
 
 int nfc_llcp_set_remote_gb(struct nfc_dev *dev, u8 *gb, u8 gb_len)
 {
-	struct nfc_llcp_local *local = nfc_llcp_find_local(dev);
+	struct nfc_llcp_local *local;
 
+	if (gb_len < 3 || gb_len > NFC_MAX_GT_LEN)
+		return -EINVAL;
+
+	local = nfc_llcp_find_local(dev);
 	if (local == NULL) {
 		pr_err("No LLCP device\n");
 		return -ENODEV;
 	}
-	if (gb_len < 3)
-		return -EINVAL;
 
 	memset(local->remote_gb, 0, NFC_MAX_GT_LEN);
 	memcpy(local->remote_gb, gb, gb_len);
@@ -719,6 +719,10 @@ static void nfc_llcp_tx_work(struct work_struct *work)
 		llcp_sock = nfc_llcp_sock(sk);
 
 		if (llcp_sock == NULL && nfc_llcp_ptype(skb) == LLCP_PDU_I) {
+			kfree_skb(skb);
+			nfc_llcp_send_symm(local->dev);
+		} else if (llcp_sock && !llcp_sock->remote_ready) {
+			skb_queue_head(&local->tx_queue, skb);
 			nfc_llcp_send_symm(local->dev);
 		} else {
 			struct sk_buff *copy_skb = NULL;
@@ -729,6 +733,13 @@ static void nfc_llcp_tx_work(struct work_struct *work)
 			print_hex_dump(KERN_DEBUG, "LLCP Tx: ",
 				       DUMP_PREFIX_OFFSET, 16, 1,
 				       skb->data, skb->len, true);
+
+			if (ptype == LLCP_PDU_DISC && sk != NULL &&
+			    sk->sk_state == LLCP_DISCONNECTING) {
+				nfc_llcp_sock_unlink(&local->sockets, sk);
+				sock_orphan(sk);
+				sock_put(sk);
+			}
 
 			if (ptype == LLCP_PDU_I)
 				copy_skb = skb_copy(skb, GFP_ATOMIC);
@@ -934,7 +945,6 @@ static void nfc_llcp_recv_connect(struct nfc_llcp_local *local,
 	new_sock->local = nfc_llcp_local_get(local);
 	new_sock->rw = sock->rw;
 	new_sock->miux = sock->miux;
-	new_sock->remote_miu = local->remote_miu;
 	new_sock->nfc_protocol = sock->nfc_protocol;
 	new_sock->dsap = ssap;
 	new_sock->target_idx = local->target_idx;
@@ -966,7 +976,7 @@ static void nfc_llcp_recv_connect(struct nfc_llcp_local *local,
 	new_sk->sk_state = LLCP_CONNECTED;
 
 	/* Wake the listening processes */
-	parent->sk_data_ready(parent, 0);
+	parent->sk_data_ready(parent);
 
 	/* Send CC */
 	nfc_llcp_send_cc(new_sock);
@@ -1579,6 +1589,7 @@ int nfc_llcp_register_device(struct nfc_dev *ndev)
 	local->lto = 150; /* 1500 ms */
 	local->rw = LLCP_MAX_RW;
 	local->miux = cpu_to_be16(LLCP_MAX_MIUX);
+	local->local_wks = 0x1; /* LLC Link Management */
 
 	nfc_llcp_build_gb(local);
 
@@ -1613,8 +1624,6 @@ void nfc_llcp_unregister_device(struct nfc_dev *dev)
 
 int __init nfc_llcp_init(void)
 {
-	INIT_LIST_HEAD(&llcp_devices);
-
 	return nfc_llcp_sock_init();
 }
 

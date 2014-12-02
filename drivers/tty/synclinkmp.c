@@ -754,8 +754,8 @@ static int open(struct tty_struct *tty, struct file *filp)
 
 	/* If port is closing, signal caller to try again */
 	if (tty_hung_up_p(filp) || info->port.flags & ASYNC_CLOSING){
-		if (info->port.flags & ASYNC_CLOSING)
-			interruptible_sleep_on(&info->port.close_wait);
+		wait_event_interruptible_tty(tty, info->port.close_wait,
+					     !(info->port.flags & ASYNC_CLOSING));
 		retval = ((info->port.flags & ASYNC_HUP_NOTIFY) ?
 			-EAGAIN : -ERESTARTSYS);
 		goto cleanup;
@@ -1766,6 +1766,7 @@ static int hdlcdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 					      HDLC_FLAG_TXC_TXCPIN | HDLC_FLAG_TXC_DPLL |
 					      HDLC_FLAG_TXC_BRG    | HDLC_FLAG_TXC_RXCPIN);
 
+		memset(&new_line, 0, sizeof(new_line));
 		switch (flags){
 		case (HDLC_FLAG_RXC_RXCPIN | HDLC_FLAG_TXC_TXCPIN): new_line.clock_type = CLOCK_EXT; break;
 		case (HDLC_FLAG_RXC_BRG    | HDLC_FLAG_TXC_BRG):    new_line.clock_type = CLOCK_INT; break;
@@ -3478,7 +3479,7 @@ static int alloc_buf_list(SLMP_INFO *info)
 	for ( i = 0; i < info->rx_buf_count; i++ ) {
 		/* calculate and store physical address of this buffer entry */
 		info->rx_buf_list_ex[i].phys_entry =
-			info->buffer_list_phys + (i * sizeof(SCABUFSIZE));
+			info->buffer_list_phys + (i * SCABUFSIZE);
 
 		/* calculate and store physical address of */
 		/* next entry in cirular list of entries */

@@ -34,9 +34,9 @@
 #include <linux/marvell_phy.h>
 #include <linux/of.h>
 
-#include <asm/io.h>
+#include <linux/io.h>
 #include <asm/irq.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define MII_MARVELL_PHY_PAGE		22
 
@@ -433,7 +433,6 @@ static int m88e1116r_config_init(struct phy_device *phydev)
 
 	return 0;
 }
-
 
 static int m88e1111_config_init(struct phy_device *phydev)
 {
@@ -895,6 +894,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -908,6 +909,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -921,6 +924,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &marvell_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -934,6 +939,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = {.owner = THIS_MODULE,},
 	},
 	{
@@ -947,6 +954,8 @@ static struct phy_driver marvell_drivers[] = {
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
 		.did_interrupt = &m88e1121_did_interrupt,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -962,6 +971,8 @@ static struct phy_driver marvell_drivers[] = {
 		.did_interrupt = &m88e1121_did_interrupt,
 		.get_wol = &m88e1318_get_wol,
 		.set_wol = &m88e1318_set_wol,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -975,6 +986,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -988,6 +1001,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -1001,6 +1016,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -1014,6 +1031,8 @@ static struct phy_driver marvell_drivers[] = {
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 	{
@@ -1027,6 +1046,8 @@ static struct phy_driver marvell_drivers[] = {
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,
 		.did_interrupt = &m88e1121_did_interrupt,
+		.resume = &genphy_resume,
+		.suspend = &genphy_suspend,
 		.driver = { .owner = THIS_MODULE },
 	},
 };
@@ -1047,17 +1068,17 @@ module_init(marvell_init);
 module_exit(marvell_exit);
 
 static struct mdio_device_id __maybe_unused marvell_tbl[] = {
-	{ 0x01410c60, 0xfffffff0 },
-	{ 0x01410c90, 0xfffffff0 },
-	{ 0x01410cc0, 0xfffffff0 },
-	{ 0x01410e10, 0xfffffff0 },
-	{ 0x01410cb0, 0xfffffff0 },
-	{ 0x01410cd0, 0xfffffff0 },
-	{ 0x01410e50, 0xfffffff0 },
-	{ 0x01410e30, 0xfffffff0 },
-	{ 0x01410e90, 0xfffffff0 },
-	{ 0x01410e40, 0xfffffff0 },
-	{ 0x01410dd0, 0xfffffff0 },
+	{ MARVELL_PHY_ID_88E1101, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1112, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1111, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1118, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1121R, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1145, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1149R, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1240, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1318S, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1116R, MARVELL_PHY_ID_MASK },
+	{ MARVELL_PHY_ID_88E1510, MARVELL_PHY_ID_MASK },
 	{ }
 };
 

@@ -86,7 +86,7 @@ static unsigned int max_memreg = RPCRDMA_LAST - 1;
 
 static struct ctl_table_header *sunrpc_table_header;
 
-static ctl_table xr_tunables_table[] = {
+static struct ctl_table xr_tunables_table[] = {
 	{
 		.procname	= "rdma_slot_table_entries",
 		.data		= &xprt_rdma_slot_table_entries,
@@ -138,7 +138,7 @@ static ctl_table xr_tunables_table[] = {
 	{ },
 };
 
-static ctl_table sunrpc_table[] = {
+static struct ctl_table sunrpc_table[] = {
 	{
 		.procname	= "sunrpc",
 		.mode		= 0555,
@@ -733,7 +733,7 @@ static void __exit xprt_rdma_cleanup(void)
 {
 	int rc;
 
-	dprintk(KERN_INFO "RPCRDMA Module Removed, deregister RPC RDMA transport\n");
+	dprintk("RPCRDMA Module Removed, deregister RPC RDMA transport\n");
 #ifdef RPC_DEBUG
 	if (sunrpc_table_header) {
 		unregister_sysctl_table(sunrpc_table_header);
@@ -755,14 +755,14 @@ static int __init xprt_rdma_init(void)
 	if (rc)
 		return rc;
 
-	dprintk(KERN_INFO "RPCRDMA Module Init, register RPC RDMA transport\n");
+	dprintk("RPCRDMA Module Init, register RPC RDMA transport\n");
 
-	dprintk(KERN_INFO "Defaults:\n");
-	dprintk(KERN_INFO "\tSlots %d\n"
+	dprintk("Defaults:\n");
+	dprintk("\tSlots %d\n"
 		"\tMaxInlineRead %d\n\tMaxInlineWrite %d\n",
 		xprt_rdma_slot_table_entries,
 		xprt_rdma_max_inline_read, xprt_rdma_max_inline_write);
-	dprintk(KERN_INFO "\tPadding %d\n\tMemreg %d\n",
+	dprintk("\tPadding %d\n\tMemreg %d\n",
 		xprt_rdma_inline_write_padding, xprt_rdma_memreg_strategy);
 
 #ifdef RPC_DEBUG

@@ -19,7 +19,7 @@
 /* Wait till MDIO interface is ready to accept a new transaction.*/
 int axienet_mdio_wait_until_ready(struct axienet_local *lp)
 {
-	long end = jiffies + 2;
+	unsigned long end = jiffies + 2;
 	while (!(axienet_ior(lp, XAE_MDIO_MCR_OFFSET) &
 		 XAE_MDIO_MCR_READY_MASK)) {
 		if (end - jiffies <= 0) {
@@ -37,7 +37,7 @@ int axienet_mdio_wait_until_ready(struct axienet_local *lp)
  * @phy_id:	Address of the PHY device
  * @reg:	PHY register to read
  *
- * returns:	The register contents on success, -ETIMEDOUT on a timeout
+ * Return:	The register contents on success, -ETIMEDOUT on a timeout
  *
  * Reads the contents of the requested register from the requested PHY
  * address by first writing the details into MCR register. After a while
@@ -80,7 +80,7 @@ static int axienet_mdio_read(struct mii_bus *bus, int phy_id, int reg)
  * @reg:	PHY register to write to
  * @val:	Value to be written into the register
  *
- * returns:	0 on success, -ETIMEDOUT on a timeout
+ * Return:	0 on success, -ETIMEDOUT on a timeout
  *
  * Writes the value to the requested register by first writing the value
  * into MWD register. The the MCR register is then appropriately setup
@@ -119,7 +119,7 @@ static int axienet_mdio_write(struct mii_bus *bus, int phy_id, int reg,
  * @lp:		Pointer to axienet local data structure.
  * @np:		Pointer to device node
  *
- * returns:	0 on success, -ETIMEDOUT on a timeout, -ENOMEM when
+ * Return:	0 on success, -ETIMEDOUT on a timeout, -ENOMEM when
  *		mdiobus_alloc (to allocate memory for mii bus structure) fails.
  *
  * Sets up the MDIO interface by initializing the MDIO clock and enabling the
@@ -160,8 +160,10 @@ int axienet_mdio_setup(struct axienet_local *lp, struct device_node *np)
 	 * "clock-frequency" from the CPU
 	 */
 	np1 = of_get_parent(lp->phy_node);
-	if (np1)
+	if (np1) {
 		npp = of_get_parent(np1);
+		of_node_put(np1);
+	}
 	if (!npp) {
 		dev_warn(lp->dev,
 			"Could not find ethernet controller device node.");
@@ -198,6 +200,7 @@ int axienet_mdio_setup(struct axienet_local *lp, struct device_node *np)
 				"based on %u Hz host clock.\n",
 				clk_div, host_clock);
 		}
+		of_node_put(npp);
 	}
 
 	axienet_iow(lp, XAE_MDIO_MC_OFFSET, (((u32)clk_div) |

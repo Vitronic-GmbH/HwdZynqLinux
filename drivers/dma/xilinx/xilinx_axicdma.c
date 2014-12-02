@@ -19,6 +19,7 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/irqdomain.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -28,9 +29,7 @@
 #include <linux/slab.h>
 
 /* Hw specific definitions */
-
-#define XILINX_CDMA_MAX_TRANS_LEN		0x7FFFFF
-						/* Max transfer length */
+#define XILINX_CDMA_MAX_TRANS_LEN	0x7FFFFF /* Max transfer length */
 
 /* Register Offsets */
 #define XILINX_CDMA_CONTROL_OFFSET	0x00 /* Control Reg */
@@ -42,47 +41,34 @@
 #define XILINX_CDMA_BTT_OFFSET		0x28 /* Bytes to transfer Reg */
 
 /* General register bits definitions */
-#define XILINX_CDMA_CR_RESET_MASK		0x00000004
-						/* Reset DMA engine */
+#define XILINX_CDMA_CR_RESET_MASK	0x00000004 /* Reset DMA engine */
 
-#define XILINX_CDMA_SR_IDLE_MASK		0x00000002
-						/* DMA channel idle */
+#define XILINX_CDMA_SR_IDLE_MASK	0x00000002 /* DMA channel idle */
 
-#define XILINX_CDMA_XR_IRQ_IOC_MASK	0x00001000
-						/* Completion interrupt */
-#define XILINX_CDMA_XR_IRQ_DELAY_MASK	0x00002000
-						/* Delay interrupt */
-#define XILINX_CDMA_XR_IRQ_ERROR_MASK	0x00004000
-						/* Error interrupt */
-#define XILINX_CDMA_XR_IRQ_ALL_MASK	0x00007000
-						/* All interrupts */
+#define XILINX_CDMA_XR_IRQ_IOC_MASK	0x00001000 /* Completion interrupt */
+#define XILINX_CDMA_XR_IRQ_DELAY_MASK	0x00002000 /* Delay interrupt */
+#define XILINX_CDMA_XR_IRQ_ERROR_MASK	0x00004000 /* Error interrupt */
+#define XILINX_CDMA_XR_IRQ_ALL_MASK	0x00007000 /* All interrupts */
 
-#define XILINX_CDMA_XR_DELAY_MASK	0xFF000000
-						/* Delay timeout counter */
-#define XILINX_CDMA_XR_COALESCE_MASK	0x00FF0000
-						/* Coalesce counter */
+#define XILINX_CDMA_XR_DELAY_MASK	0xFF000000 /* Delay timeout counter */
+#define XILINX_CDMA_XR_COALESCE_MASK	0x00FF0000 /* Coalesce counter */
 
 #define XILINX_CDMA_DELAY_SHIFT		24 /* Delay counter shift */
 #define XILINX_CDMA_COALESCE_SHIFT	16 /* Coaelsce counter shift */
 
-#define XILINX_CDMA_DELAY_MAX		0xFF
-					/* Maximum delay counter value */
+#define XILINX_CDMA_DELAY_MAX		0xFF /* Maximum delay counter value */
+/* Maximum coalescing counter value */
 #define XILINX_CDMA_COALESCE_MAX	0xFF
-					/* Maximum coalescing counter value */
 
-#define XILINX_CDMA_CR_SGMODE_MASK	0x00000008
-					/* Scatter gather mode */
+#define XILINX_CDMA_CR_SGMODE_MASK	0x00000008 /* Scatter gather mode */
 
 /* BD definitions for Axi Cdma */
 #define XILINX_CDMA_BD_STS_ALL_MASK	0xF0000000
 
 /* Feature encodings */
-#define XILINX_CDMA_FTR_DATA_WIDTH_MASK	0x000000FF
-						/* Data width mask, 1024 */
-#define XILINX_CDMA_FTR_HAS_SG		0x00000100
-						/* Has SG */
-#define XILINX_CDMA_FTR_HAS_SG_SHIFT	8
-						/* Has SG shift */
+#define XILINX_CDMA_FTR_DATA_WIDTH_MASK	0x000000FF /* Data width mask, 1024 */
+#define XILINX_CDMA_FTR_HAS_SG		0x00000100 /* Has SG */
+#define XILINX_CDMA_FTR_HAS_SG_SHIFT	8 /* Has SG shift */
 
 /* Delay loop counter to prevent hardware failure */
 #define XILINX_CDMA_RESET_LOOP	1000000
@@ -824,10 +810,8 @@ static int xilinx_cdma_chan_probe(struct xilinx_cdma_device *xdev,
 
 	/* alloc channel */
 	chan = devm_kzalloc(xdev->dev, sizeof(*chan), GFP_KERNEL);
-	if (!chan) {
-		dev_err(xdev->dev, "no free memory for DMA channels!\n");
+	if (!chan)
 		return -ENOMEM;
-	}
 
 	chan->feature = feature;
 	chan->max_len = XILINX_CDMA_MAX_TRANS_LEN;
@@ -932,8 +916,7 @@ static int xilinx_cdma_probe(struct platform_device *pdev)
 	int ret;
 	u32 value;
 
-	xdev = devm_kzalloc(&pdev->dev, sizeof(struct xilinx_cdma_device),
-			    GFP_KERNEL);
+	xdev = devm_kzalloc(&pdev->dev, sizeof(*xdev), GFP_KERNEL);
 	if (!xdev)
 		return -ENOMEM;
 
@@ -945,10 +928,8 @@ static int xilinx_cdma_probe(struct platform_device *pdev)
 	/* iomap registers */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	xdev->regs = devm_ioremap_resource(&pdev->dev, res);
-	if (!xdev->regs) {
-		dev_err(&pdev->dev, "unable to iomap registers\n");
-		return -ENOMEM;
-	}
+	if (IS_ERR(xdev->regs))
+		return PTR_ERR(xdev->regs);
 
 	/* Check if SG is enabled */
 	value = of_property_read_bool(node, "xlnx,include-sg");
@@ -1006,16 +987,16 @@ static int xilinx_cdma_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id xilinx_cdma_of_ids[] = {
+static const struct of_device_id xilinx_cdma_of_match[] = {
 	{ .compatible = "xlnx,axi-cdma", },
 	{}
 };
+MODULE_DEVICE_TABLE(of, xilinx_cdma_of_match);
 
 static struct platform_driver xilinx_cdma_driver = {
 	.driver = {
 		.name = "xilinx-cdma",
-		.owner = THIS_MODULE,
-		.of_match_table = xilinx_cdma_of_ids,
+		.of_match_table = xilinx_cdma_of_match,
 	},
 	.probe = xilinx_cdma_probe,
 	.remove = xilinx_cdma_remove,

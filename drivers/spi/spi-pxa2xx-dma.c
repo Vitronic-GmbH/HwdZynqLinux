@@ -9,7 +9,6 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/init.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
@@ -29,18 +28,6 @@ static int pxa2xx_spi_map_dma_buffer(struct driver_data *drv_data,
 	struct device *dmadev;
 	struct sg_table *sgt;
 	void *buf, *pbuf;
-
-	/*
-	 * Some DMA controllers have problems transferring buffers that are
-	 * not multiple of 4 bytes. So we truncate the transfer so that it
-	 * is suitable for such controllers, and handle the trailing bytes
-	 * manually after the DMA completes.
-	 *
-	 * REVISIT: It would be better if this information could be
-	 * retrieved directly from the DMA device in a similar way than
-	 * ->copy_align etc. is done.
-	 */
-	len = ALIGN(drv_data->len, 4);
 
 	if (dir == DMA_TO_DEVICE) {
 		dmadev = drv_data->tx_chan->device->dev;
@@ -145,12 +132,8 @@ static void pxa2xx_spi_dma_transfer_complete(struct driver_data *drv_data,
 		if (!error) {
 			pxa2xx_spi_unmap_dma_buffers(drv_data);
 
-			/* Handle the last bytes of unaligned transfer */
 			drv_data->tx += drv_data->tx_map_len;
-			drv_data->write(drv_data);
-
 			drv_data->rx += drv_data->rx_map_len;
-			drv_data->read(drv_data);
 
 			msg->actual_length += drv_data->len;
 			msg->state = pxa2xx_spi_next_transfer(drv_data);
@@ -327,22 +310,23 @@ void pxa2xx_spi_dma_start(struct driver_data *drv_data)
 int pxa2xx_spi_dma_setup(struct driver_data *drv_data)
 {
 	struct pxa2xx_spi_master *pdata = drv_data->master_info;
+	struct device *dev = &drv_data->pdev->dev;
 	dma_cap_mask_t mask;
 
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_SLAVE, mask);
 
-	drv_data->dummy = devm_kzalloc(&drv_data->pdev->dev, SZ_2K, GFP_KERNEL);
+	drv_data->dummy = devm_kzalloc(dev, SZ_2K, GFP_KERNEL);
 	if (!drv_data->dummy)
 		return -ENOMEM;
 
-	drv_data->tx_chan = dma_request_channel(mask, pxa2xx_spi_dma_filter,
-						pdata);
+	drv_data->tx_chan = dma_request_slave_channel_compat(mask,
+				pxa2xx_spi_dma_filter, pdata, dev, "tx");
 	if (!drv_data->tx_chan)
 		return -ENODEV;
 
-	drv_data->rx_chan = dma_request_channel(mask, pxa2xx_spi_dma_filter,
-						pdata);
+	drv_data->rx_chan = dma_request_slave_channel_compat(mask,
+				pxa2xx_spi_dma_filter, pdata, dev, "rx");
 	if (!drv_data->rx_chan) {
 		dma_release_channel(drv_data->tx_chan);
 		drv_data->tx_chan = NULL;

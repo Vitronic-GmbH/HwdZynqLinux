@@ -261,6 +261,7 @@ static const struct {
 	{ FC_PORTSPEED_10GBIT,		"10 Gbit" },
 	{ FC_PORTSPEED_8GBIT,		"8 Gbit" },
 	{ FC_PORTSPEED_16GBIT,		"16 Gbit" },
+	{ FC_PORTSPEED_32GBIT,		"32 Gbit" },
 	{ FC_PORTSPEED_NOT_NEGOTIATED,	"Not Negotiated" },
 };
 fc_bitfield_name_search(port_speed, fc_port_speed_names)
@@ -435,7 +436,7 @@ static int fc_host_setup(struct transport_container *tc, struct device *dev,
 
 	snprintf(fc_host->work_q_name, sizeof(fc_host->work_q_name),
 		 "fc_wq_%d", shost->host_no);
-	fc_host->work_q = alloc_workqueue(fc_host->work_q_name, 0, 0);
+	fc_host->work_q = alloc_workqueue("%s", 0, 0, fc_host->work_q_name);
 	if (!fc_host->work_q)
 		return -ENOMEM;
 
@@ -443,8 +444,8 @@ static int fc_host_setup(struct transport_container *tc, struct device *dev,
 	snprintf(fc_host->devloss_work_q_name,
 		 sizeof(fc_host->devloss_work_q_name),
 		 "fc_dl_%d", shost->host_no);
-	fc_host->devloss_work_q =
-			alloc_workqueue(fc_host->devloss_work_q_name, 0, 0);
+	fc_host->devloss_work_q = alloc_workqueue("%s", 0, 0,
+					fc_host->devloss_work_q_name);
 	if (!fc_host->devloss_work_q) {
 		destroy_workqueue(fc_host->work_q);
 		fc_host->work_q = NULL;

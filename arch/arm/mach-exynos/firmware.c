@@ -18,6 +18,8 @@
 
 #include <mach/map.h>
 
+#include <plat/cpu.h>
+
 #include "smc.h"
 
 static int exynos_do_idle(void)
@@ -28,13 +30,24 @@ static int exynos_do_idle(void)
 
 static int exynos_cpu_boot(int cpu)
 {
+	/*
+	 * The second parameter of SMC_CMD_CPU1BOOT command means CPU id.
+	 * But, Exynos4212 has only one secondary CPU so second parameter
+	 * isn't used for informing secure firmware about CPU id.
+	 */
+	if (soc_is_exynos4212())
+		cpu = 0;
+
 	exynos_smc(SMC_CMD_CPU1BOOT, cpu, 0, 0);
 	return 0;
 }
 
 static int exynos_set_cpu_boot_addr(int cpu, unsigned long boot_addr)
 {
-	void __iomem *boot_reg = S5P_VA_SYSRAM_NS + 0x1c + 4*cpu;
+	void __iomem *boot_reg = S5P_VA_SYSRAM_NS + 0x1c;
+
+	if (!soc_is_exynos4212())
+		boot_reg += 4*cpu;
 
 	__raw_writel(boot_addr, boot_reg);
 	return 0;
@@ -48,20 +61,18 @@ static const struct firmware_ops exynos_firmware_ops = {
 
 void __init exynos_firmware_init(void)
 {
-	if (of_have_populated_dt()) {
-		struct device_node *nd;
-		const __be32 *addr;
+	struct device_node *nd;
+	const __be32 *addr;
 
-		nd = of_find_compatible_node(NULL, NULL,
-						"samsung,secure-firmware");
-		if (!nd)
-			return;
+	nd = of_find_compatible_node(NULL, NULL,
+					"samsung,secure-firmware");
+	if (!nd)
+		return;
 
-		addr = of_get_address(nd, 0, NULL, NULL);
-		if (!addr) {
-			pr_err("%s: No address specified.\n", __func__);
-			return;
-		}
+	addr = of_get_address(nd, 0, NULL, NULL);
+	if (!addr) {
+		pr_err("%s: No address specified.\n", __func__);
+		return;
 	}
 
 	pr_info("Running under secure firmware.\n");

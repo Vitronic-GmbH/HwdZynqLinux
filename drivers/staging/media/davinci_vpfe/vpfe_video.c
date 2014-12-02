@@ -39,7 +39,7 @@ static struct media_entity *vpfe_get_input_entity
 	struct vpfe_device *vpfe_dev = video->vpfe_dev;
 	struct media_pad *remote;
 
-	remote = media_entity_remote_source(&vpfe_dev->vpfe_isif.pads[0]);
+	remote = media_entity_remote_pad(&vpfe_dev->vpfe_isif.pads[0]);
 	if (remote == NULL) {
 		pr_err("Invalid media connection to isif/ccdc\n");
 		return NULL;
@@ -56,7 +56,7 @@ static int vpfe_update_current_ext_subdev(struct vpfe_video_device *video)
 	struct media_pad *remote;
 	int i;
 
-	remote = media_entity_remote_source(&vpfe_dev->vpfe_isif.pads[0]);
+	remote = media_entity_remote_pad(&vpfe_dev->vpfe_isif.pads[0]);
 	if (remote == NULL) {
 		pr_err("Invalid media connection to isif/ccdc\n");
 		return -EINVAL;
@@ -89,7 +89,7 @@ static int vpfe_update_current_ext_subdev(struct vpfe_video_device *video)
 static struct v4l2_subdev *
 vpfe_video_remote_subdev(struct vpfe_video_device *video, u32 *pad)
 {
-	struct media_pad *remote = media_entity_remote_source(&video->pad);
+	struct media_pad *remote = media_entity_remote_pad(&video->pad);
 
 	if (remote == NULL || remote->entity->type != MEDIA_ENT_T_V4L2_SUBDEV)
 		return NULL;
@@ -114,7 +114,7 @@ __vpfe_video_get_format(struct vpfe_video_device *video,
 		return -EINVAL;
 
 	fmt.which = V4L2_SUBDEV_FORMAT_ACTIVE;
-	remote = media_entity_remote_source(&video->pad);
+	remote = media_entity_remote_pad(&video->pad);
 	fmt.pad = remote->index;
 
 	ret = v4l2_subdev_call(subdev, pad, get_fmt, NULL, &fmt);
@@ -245,7 +245,7 @@ static int vpfe_video_validate_pipeline(struct vpfe_pipeline *pipe)
 			return -EPIPE;
 
 		/* Retrieve the source format */
-		pad = media_entity_remote_source(pad);
+		pad = media_entity_remote_pad(pad);
 		if (pad == NULL ||
 			pad->entity->type != MEDIA_ENT_T_V4L2_SUBDEV)
 			break;
@@ -346,7 +346,7 @@ static int vpfe_pipeline_disable(struct vpfe_pipeline *pipe)
 	}
 	mutex_unlock(&mdev->graph_mutex);
 
-	return (ret == 0) ? ret : -ETIMEDOUT ;
+	return ret ? -ETIMEDOUT : 0;
 }
 
 /*
@@ -667,7 +667,7 @@ static int vpfe_enum_fmt(struct file *file, void  *priv,
 		return -EINVAL;
 	}
 	/* get the remote pad */
-	remote = media_entity_remote_source(&video->pad);
+	remote = media_entity_remote_pad(&video->pad);
 	if (remote == NULL) {
 		v4l2_err(&vpfe_dev->v4l2_dev,
 			 "invalid remote pad for video node\n");
@@ -1247,9 +1247,18 @@ static int vpfe_stop_streaming(struct vb2_queue *vq)
 	struct vpfe_fh *fh = vb2_get_drv_priv(vq);
 	struct vpfe_video_device *video = fh->video;
 
-	if (!vb2_is_streaming(vq))
-		return 0;
 	/* release all active buffers */
+	if (video->cur_frm == video->next_frm) {
+		vb2_buffer_done(&video->cur_frm->vb, VB2_BUF_STATE_ERROR);
+	} else {
+		if (video->cur_frm != NULL)
+			vb2_buffer_done(&video->cur_frm->vb,
+					VB2_BUF_STATE_ERROR);
+		if (video->next_frm != NULL)
+			vb2_buffer_done(&video->next_frm->vb,
+					VB2_BUF_STATE_ERROR);
+	}
+
 	while (!list_empty(&video->dma_queue)) {
 		video->next_frm = list_entry(video->dma_queue.next,
 						struct vpfe_cap_buffer, list);
@@ -1325,6 +1334,7 @@ static int vpfe_reqbufs(struct file *file, void *priv,
 	q->type = req_buf->type;
 	q->io_modes = VB2_MMAP | VB2_USERPTR;
 	q->drv_priv = fh;
+	q->min_buffers_needed = 1;
 	q->ops = &video_qops;
 	q->mem_ops = &vb2_dma_contig_memops;
 	q->buf_struct_size = sizeof(struct vpfe_cap_buffer);
@@ -1614,7 +1624,7 @@ int vpfe_video_register(struct vpfe_video_device *video,
 void vpfe_video_unregister(struct vpfe_video_device *video)
 {
 	if (video_is_registered(&video->video_dev)) {
-		media_entity_cleanup(&video->video_dev.entity);
 		video_unregister_device(&video->video_dev);
+		media_entity_cleanup(&video->video_dev.entity);
 	}
 }

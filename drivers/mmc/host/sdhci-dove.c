@@ -130,7 +130,7 @@ static int sdhci_dove_probe(struct platform_device *pdev)
 		gpio_direction_input(priv->gpio_cd);
 	}
 
-	host = sdhci_pltfm_init(pdev, &sdhci_dove_pdata);
+	host = sdhci_pltfm_init(pdev, &sdhci_dove_pdata, 0);
 	if (IS_ERR(host)) {
 		ret = PTR_ERR(host);
 		goto err_sdhci_pltfm_init;
@@ -208,7 +208,7 @@ static struct platform_driver sdhci_dove_driver = {
 		.name	= "sdhci-dove",
 		.owner	= THIS_MODULE,
 		.pm	= SDHCI_PLTFM_PMOPS,
-		.of_match_table = of_match_ptr(sdhci_dove_of_match_table),
+		.of_match_table = sdhci_dove_of_match_table,
 	},
 	.probe		= sdhci_dove_probe,
 	.remove		= sdhci_dove_remove,

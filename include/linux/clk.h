@@ -78,9 +78,40 @@ struct clk_notifier_data {
 	unsigned long		new_rate;
 };
 
+/**
+ * clk_notifier_register: register a clock rate-change notifier callback
+ * @clk: clock whose rate we are interested in
+ * @nb: notifier block with callback function pointer
+ *
+ * ProTip: debugging across notifier chains can be frustrating. Make sure that
+ * your notifier callback function prints a nice big warning in case of
+ * failure.
+ */
 int clk_notifier_register(struct clk *clk, struct notifier_block *nb);
 
+/**
+ * clk_notifier_unregister: unregister a clock rate-change notifier callback
+ * @clk: clock whose rate we are no longer interested in
+ * @nb: notifier block which will be unregistered
+ */
 int clk_notifier_unregister(struct clk *clk, struct notifier_block *nb);
+
+/**
+ * clk_get_accuracy - obtain the clock accuracy in ppb (parts per billion)
+ *		      for a clock source.
+ * @clk: clock source
+ *
+ * This gets the clock source accuracy expressed in ppb.
+ * A perfect clock returns 0.
+ */
+long clk_get_accuracy(struct clk *clk);
+
+#else
+
+static inline long clk_get_accuracy(struct clk *clk)
+{
+	return -ENOTSUPP;
+}
 
 #endif
 
@@ -224,23 +255,13 @@ void devm_clk_put(struct device *dev, struct clk *clk);
 
 
 /**
- * clk_round_rate - round a rate to the exact rate a clock can provide not
- *		    exceeding @rate
+ * clk_round_rate - adjust a rate to the exact rate a clock can provide
  * @clk: clock source
  * @rate: desired clock rate in Hz
  *
- * Returns rounded clock rate in Hz, or parent rate
+ * Returns rounded clock rate in Hz, or negative errno.
  */
 long clk_round_rate(struct clk *clk, unsigned long rate);
-
-/**
- * clk_round_rate_nearest - round a rate to the exact rate a clock can provide
- * @clk: the clk for which we are rounding a rate
- * @rate: the rate which is to be rounded
- *
- * Returns rounded clock rate in Hz, or parent rate
- */
-long clk_round_rate_nearest(struct clk *clk, unsigned long rate);
 
 /**
  * clk_set_rate - set the clock rate for a clock source

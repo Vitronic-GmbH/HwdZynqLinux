@@ -409,6 +409,7 @@ int __weak page_is_ram(unsigned long pfn)
 {
 	return walk_system_ram_range(pfn, 1, NULL, __is_ram) == 1;
 }
+EXPORT_SYMBOL_GPL(page_is_ram);
 
 void __weak arch_remove_reservations(struct resource *avail)
 {
@@ -431,11 +432,6 @@ static void resource_clip(struct resource *res, resource_size_t min,
 		res->end = max;
 }
 
-static bool resource_contains(struct resource *res1, struct resource *res2)
-{
-	return res1->start <= res2->start && res1->end >= res2->end;
-}
-
 /*
  * Find empty slot in the resource tree with the given range and
  * alignment constraints
@@ -448,7 +444,6 @@ static int __find_resource(struct resource *root, struct resource *old,
 	struct resource *this = root->child;
 	struct resource tmp = *new, avail, alloc;
 
-	tmp.flags = new->flags;
 	tmp.start = root->start;
 	/*
 	 * Skip past an allocated resource that starts at 0, since the assignment
@@ -471,10 +466,11 @@ static int __find_resource(struct resource *root, struct resource *old,
 		arch_remove_reservations(&tmp);
 
 		/* Check for overflow after ALIGN() */
-		avail = *new;
 		avail.start = ALIGN(tmp.start, constraint->align);
 		avail.end = tmp.end;
+		avail.flags = new->flags & ~IORESOURCE_UNSET;
 		if (avail.start >= tmp.start) {
+			alloc.flags = avail.flags;
 			alloc.start = constraint->alignf(constraint->alignf_data, &avail,
 					size, constraint->align);
 			alloc.end = alloc.start + size - 1;
@@ -515,7 +511,7 @@ static int find_resource(struct resource *root, struct resource *new,
  * @newsize: new size of the resource descriptor
  * @constraint: the size and alignment constraints to be met.
  */
-int reallocate_resource(struct resource *root, struct resource *old,
+static int reallocate_resource(struct resource *root, struct resource *old,
 			resource_size_t newsize,
 			struct resource_constraint  *constraint)
 {
@@ -949,8 +945,8 @@ struct resource * __request_region(struct resource *parent,
 	res->name = name;
 	res->start = start;
 	res->end = start + n - 1;
-	res->flags = IORESOURCE_BUSY;
-	res->flags |= flags;
+	res->flags = resource_type(parent);
+	res->flags |= IORESOURCE_BUSY | flags;
 
 	write_lock(&resource_lock);
 

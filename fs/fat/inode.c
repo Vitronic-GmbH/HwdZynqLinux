@@ -147,7 +147,7 @@ static void fat_write_failed(struct address_space *mapping, loff_t to)
 	struct inode *inode = mapping->host;
 
 	if (to > inode->i_size) {
-		truncate_pagecache(inode, to, inode->i_size);
+		truncate_pagecache(inode, inode->i_size);
 		fat_truncate_blocks(inode, inode->i_size);
 	}
 }
@@ -490,7 +490,7 @@ EXPORT_SYMBOL_GPL(fat_build_inode);
 
 static void fat_evict_inode(struct inode *inode)
 {
-	truncate_inode_pages(&inode->i_data, 0);
+	truncate_inode_pages_final(&inode->i_data);
 	if (!inode->i_nlink) {
 		inode->i_size = 0;
 		fat_truncate_blocks(inode, 0);
@@ -548,6 +548,16 @@ static void fat_set_state(struct super_block *sb,
 	brelse(bh);
 }
 
+static void delayed_free(struct rcu_head *p)
+{
+	struct msdos_sb_info *sbi = container_of(p, struct msdos_sb_info, rcu);
+	unload_nls(sbi->nls_disk);
+	unload_nls(sbi->nls_io);
+	if (sbi->options.iocharset != fat_default_iocharset)
+		kfree(sbi->options.iocharset);
+	kfree(sbi);
+}
+
 static void fat_put_super(struct super_block *sb)
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
@@ -557,14 +567,7 @@ static void fat_put_super(struct super_block *sb)
 	iput(sbi->fsinfo_inode);
 	iput(sbi->fat_inode);
 
-	unload_nls(sbi->nls_disk);
-	unload_nls(sbi->nls_io);
-
-	if (sbi->options.iocharset != fat_default_iocharset)
-		kfree(sbi->options.iocharset);
-
-	sb->s_fs_info = NULL;
-	kfree(sbi);
+	call_rcu(&sbi->rcu, delayed_free);
 }
 
 static struct kmem_cache *fat_inode_cachep;
@@ -631,6 +634,8 @@ static int fat_remount(struct super_block *sb, int *flags, char *data)
 	int new_rdonly;
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	*flags |= MS_NODIRATIME | (sbi->options.isvfat ? 0 : MS_NOATIME);
+
+	sync_filesystem(sb);
 
 	/* make sure we update state on remount. */
 	new_rdonly = *flags & MS_RDONLY;
@@ -1414,6 +1419,18 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 
 		brelse(fsinfo_bh);
 	}
+
+	/* interpret volume ID as a little endian 32 bit integer */
+	if (sbi->fat_bits == 32)
+		sbi->vol_id = (((u32)b->fat32.vol_id[0]) |
+					((u32)b->fat32.vol_id[1] << 8) |
+					((u32)b->fat32.vol_id[2] << 16) |
+					((u32)b->fat32.vol_id[3] << 24));
+	else /* fat 16 or 12 */
+		sbi->vol_id = (((u32)b->fat16.vol_id[0]) |
+					((u32)b->fat16.vol_id[1] << 8) |
+					((u32)b->fat16.vol_id[2] << 16) |
+					((u32)b->fat16.vol_id[3] << 24));
 
 	sbi->dir_per_block = sb->s_blocksize / sizeof(struct msdos_dir_entry);
 	sbi->dir_per_block_bits = ffs(sbi->dir_per_block) - 1;

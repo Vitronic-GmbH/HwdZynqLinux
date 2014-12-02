@@ -30,7 +30,6 @@
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/delay.h>
@@ -41,7 +40,7 @@
 #include <linux/i2c-xiic.h>
 #include <linux/io.h>
 #include <linux/slab.h>
-#include <linux/of_i2c.h>
+#include <linux/of.h>
 
 #define DRIVER_NAME "xiic-i2c"
 
@@ -273,8 +272,11 @@ static void xiic_read_rx(struct xiic_i2c *i2c)
 
 	bytes_in_fifo = xiic_getreg8(i2c, XIIC_RFO_REG_OFFSET) + 1;
 
-	dev_dbg(i2c->adap.dev.parent, "%s entry, bytes in fifo: %d, msg: %d",
-		__func__, bytes_in_fifo, xiic_rx_space(i2c));
+	dev_dbg(i2c->adap.dev.parent,
+		"%s entry, bytes in fifo: %d, msg: %d, SR: 0x%x, CR: 0x%x\n",
+		__func__, bytes_in_fifo, xiic_rx_space(i2c),
+		xiic_getreg8(i2c, XIIC_SR_REG_OFFSET),
+		xiic_getreg8(i2c, XIIC_CR_REG_OFFSET));
 
 	if (bytes_in_fifo > xiic_rx_space(i2c))
 		bytes_in_fifo = xiic_rx_space(i2c);
@@ -682,7 +684,7 @@ static const struct i2c_algorithm xiic_algorithm = {
 static struct i2c_adapter xiic_adapter = {
 	.owner		= THIS_MODULE,
 	.name		= DRIVER_NAME,
-	.class		= I2C_CLASS_HWMON | I2C_CLASS_SPD,
+	.class		= I2C_CLASS_HWMON | I2C_CLASS_SPD | I2C_CLASS_DEPRECATED,
 	.algo		= &xiic_algorithm,
 };
 
@@ -695,28 +697,20 @@ static int xiic_i2c_probe(struct platform_device *pdev)
 	int ret, irq;
 	u8 i;
 
-	i2c = devm_kzalloc(&pdev->dev, sizeof(struct xiic_i2c), GFP_KERNEL);
+	i2c = devm_kzalloc(&pdev->dev, sizeof(*i2c), GFP_KERNEL);
 	if (!i2c)
 		return -ENOMEM;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	i2c->base = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(i2c->base)) {
-		dev_err(&pdev->dev, "Could not allocate iomem\n");
+	if (IS_ERR(i2c->base))
 		return PTR_ERR(i2c->base);
-	}
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
 
-	ret = devm_request_irq(&pdev->dev, irq, xiic_isr, 0, pdev->name, i2c);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "Cannot claim IRQ\n");
-		return ret;
-	}
-
-	pdata = (struct xiic_i2c_platform_data *) pdev->dev.platform_data;
+	pdata = dev_get_platdata(&pdev->dev);
 
 	/* hook up driver to tree */
 	platform_set_drvdata(pdev, i2c);
@@ -725,15 +719,22 @@ static int xiic_i2c_probe(struct platform_device *pdev)
 	i2c->adap.dev.parent = &pdev->dev;
 	i2c->adap.dev.of_node = pdev->dev.of_node;
 
-	xiic_reinit(i2c);
-
 	spin_lock_init(&i2c->lock);
 	init_waitqueue_head(&i2c->wait);
+
+	ret = devm_request_irq(&pdev->dev, irq, xiic_isr, 0, pdev->name, i2c);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Cannot claim IRQ\n");
+		return ret;
+	}
+
+	xiic_reinit(i2c);
 
 	/* add i2c adapter to i2c tree */
 	ret = i2c_add_adapter(&i2c->adap);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to add adapter\n");
+		xiic_deinit(i2c);
 		return ret;
 	}
 
@@ -742,8 +743,6 @@ static int xiic_i2c_probe(struct platform_device *pdev)
 		for (i = 0; i < pdata->num_devices; i++)
 			i2c_new_device(&i2c->adap, pdata->devices + i);
 	}
-
-	of_i2c_register_devices(&i2c->adap);
 
 	return 0;
 }
@@ -772,7 +771,6 @@ static struct platform_driver xiic_i2c_driver = {
 	.probe   = xiic_i2c_probe,
 	.remove  = xiic_i2c_remove,
 	.driver  = {
-		.owner = THIS_MODULE,
 		.name = DRIVER_NAME,
 		.of_match_table = of_match_ptr(xiic_of_match),
 	},

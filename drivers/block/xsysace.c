@@ -463,7 +463,7 @@ static inline void ace_fsm_yieldirq(struct ace_device *ace)
 }
 
 /* Get the next read/write request; ending requests that we don't handle */
-static struct request *ace_get_next_request(struct request_queue * q)
+static struct request *ace_get_next_request(struct request_queue *q)
 {
 	struct request *req;
 
@@ -1203,7 +1203,6 @@ static struct platform_driver ace_platform_driver = {
 	.probe = ace_probe,
 	.remove = ace_remove,
 	.driver = {
-		.owner = THIS_MODULE,
 		.name = "xsysace",
 		.of_match_table = ace_of_match,
 	},

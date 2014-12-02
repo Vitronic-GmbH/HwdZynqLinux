@@ -7,7 +7,6 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/delay.h>
-#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/preempt.h>
@@ -700,7 +699,7 @@ static int n2rng_probe(struct platform_device *op)
 	if (err)
 		goto out_free_units;
 
-	dev_set_drvdata(&op->dev, np);
+	platform_set_drvdata(op, np);
 
 	schedule_delayed_work(&np->work, 0);
 
@@ -721,7 +720,7 @@ out:
 
 static int n2rng_remove(struct platform_device *op)
 {
-	struct n2rng *np = dev_get_drvdata(&op->dev);
+	struct n2rng *np = platform_get_drvdata(op);
 
 	np->flags |= N2RNG_FLAG_SHUTDOWN;
 
@@ -735,8 +734,6 @@ static int n2rng_remove(struct platform_device *op)
 	np->units = NULL;
 
 	kfree(np);
-
-	dev_set_drvdata(&op->dev, NULL);
 
 	return 0;
 }

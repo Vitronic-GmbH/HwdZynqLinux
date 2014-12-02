@@ -28,7 +28,8 @@ Optional properties:
 Slave Properties:
 Required properties:
 - phy_id		: Specifies slave phy id
-- mac-address		: Specifies slave MAC address
+- phy-mode		: See ethernet.txt file in the same directory
+- mac-address		: See ethernet.txt file in the same directory
 
 Optional properties:
 - dual_emac_res_vlan	: Specifies VID to be used to segregate the ports
@@ -58,11 +59,13 @@ Examples:
 		cpts_clock_shift = <29>;
 		cpsw_emac0: slave@0 {
 			phy_id = <&davinci_mdio>, <0>;
+			phy-mode = "rgmii-txid";
 			/* Filled in by U-Boot */
 			mac-address = [ 00 00 00 00 00 00 ];
 		};
 		cpsw_emac1: slave@1 {
 			phy_id = <&davinci_mdio>, <1>;
+			phy-mode = "rgmii-txid";
 			/* Filled in by U-Boot */
 			mac-address = [ 00 00 00 00 00 00 ];
 		};
@@ -84,11 +87,13 @@ Examples:
 		cpts_clock_shift = <29>;
 		cpsw_emac0: slave@0 {
 			phy_id = <&davinci_mdio>, <0>;
+			phy-mode = "rgmii-txid";
 			/* Filled in by U-Boot */
 			mac-address = [ 00 00 00 00 00 00 ];
 		};
 		cpsw_emac1: slave@1 {
 			phy_id = <&davinci_mdio>, <1>;
+			phy-mode = "rgmii-txid";
 			/* Filled in by U-Boot */
 			mac-address = [ 00 00 00 00 00 00 ];
 		};

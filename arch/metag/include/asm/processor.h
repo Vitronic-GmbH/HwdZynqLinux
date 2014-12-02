@@ -22,6 +22,8 @@
 /* Add an extra page of padding at the top of the stack for the guard page. */
 #define STACK_TOP	(TASK_SIZE - PAGE_SIZE)
 #define STACK_TOP_MAX	STACK_TOP
+/* Maximum virtual space for stack */
+#define STACK_SIZE_MAX	(CONFIG_MAX_STACK_SIZE_MB*1024*1024)
 
 /* This decides where the kernel will search for a free chunk of vm
  * space during mmap's.
@@ -198,5 +200,7 @@ extern void (*soc_halt)(void);
 
 extern void show_trace(struct task_struct *tsk, unsigned long *sp,
 		       struct pt_regs *regs);
+
+extern const struct seq_operations cpuinfo_op;
 
 #endif

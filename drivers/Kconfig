@@ -52,7 +52,7 @@ source "drivers/i2c/Kconfig"
 
 source "drivers/spi/Kconfig"
 
-source "drivers/ssbi/Kconfig"
+source "drivers/spmi/Kconfig"
 
 source "drivers/hsi/Kconfig"
 
@@ -114,8 +114,6 @@ source "drivers/dca/Kconfig"
 
 source "drivers/auxdisplay/Kconfig"
 
-source "drivers/xilinx_common/Kconfig"
-
 source "drivers/uio/Kconfig"
 
 source "drivers/vfio/Kconfig"
@@ -162,12 +160,18 @@ source "drivers/vme/Kconfig"
 
 source "drivers/pwm/Kconfig"
 
-source "drivers/pmods/Kconfig"
-
 source "drivers/irqchip/Kconfig"
 
 source "drivers/ipack/Kconfig"
 
 source "drivers/reset/Kconfig"
+
+source "drivers/fmc/Kconfig"
+
+source "drivers/phy/Kconfig"
+
+source "drivers/powercap/Kconfig"
+
+source "drivers/mcb/Kconfig"
 
 endmenu

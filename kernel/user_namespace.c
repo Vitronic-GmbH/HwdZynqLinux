@@ -62,6 +62,9 @@ int create_user_ns(struct cred *new)
 	kgid_t group = new->egid;
 	int ret;
 
+	if (parent_ns->level > 32)
+		return -EUSERS;
+
 	/*
 	 * Verify that we can not violate the policy of which files
 	 * may be accessed that is specified by the root directory,
@@ -92,29 +95,36 @@ int create_user_ns(struct cred *new)
 	atomic_set(&ns->count, 1);
 	/* Leave the new->user_ns reference with the new user namespace. */
 	ns->parent = parent_ns;
+	ns->level = parent_ns->level + 1;
 	ns->owner = owner;
 	ns->group = group;
 
 	set_cred_user_ns(new, ns);
 
-	update_mnt_policy(ns);
-
+#ifdef CONFIG_PERSISTENT_KEYRINGS
+	init_rwsem(&ns->persistent_keyring_register_sem);
+#endif
 	return 0;
 }
 
 int unshare_userns(unsigned long unshare_flags, struct cred **new_cred)
 {
 	struct cred *cred;
+	int err = -ENOMEM;
 
 	if (!(unshare_flags & CLONE_NEWUSER))
 		return 0;
 
 	cred = prepare_creds();
-	if (!cred)
-		return -ENOMEM;
+	if (cred) {
+		err = create_user_ns(cred);
+		if (err)
+			put_cred(cred);
+		else
+			*new_cred = cred;
+	}
 
-	*new_cred = cred;
-	return create_user_ns(cred);
+	return err;
 }
 
 void free_user_ns(struct user_namespace *ns)
@@ -123,6 +133,9 @@ void free_user_ns(struct user_namespace *ns)
 
 	do {
 		parent = ns->parent;
+#ifdef CONFIG_PERSISTENT_KEYRINGS
+		key_put(ns->persistent_keyring_register);
+#endif
 		proc_free_inum(ns->proc_inum);
 		kmem_cache_free(user_ns_cachep, ns);
 		ns = parent;
@@ -139,7 +152,7 @@ static u32 map_id_range_down(struct uid_gid_map *map, u32 id, u32 count)
 
 	/* Find the matching extent */
 	extents = map->nr_extents;
-	smp_read_barrier_depends();
+	smp_rmb();
 	for (idx = 0; idx < extents; idx++) {
 		first = map->extent[idx].first;
 		last = first + map->extent[idx].count - 1;
@@ -163,7 +176,7 @@ static u32 map_id_down(struct uid_gid_map *map, u32 id)
 
 	/* Find the matching extent */
 	extents = map->nr_extents;
-	smp_read_barrier_depends();
+	smp_rmb();
 	for (idx = 0; idx < extents; idx++) {
 		first = map->extent[idx].first;
 		last = first + map->extent[idx].count - 1;
@@ -186,7 +199,7 @@ static u32 map_id_up(struct uid_gid_map *map, u32 id)
 
 	/* Find the matching extent */
 	extents = map->nr_extents;
-	smp_read_barrier_depends();
+	smp_rmb();
 	for (idx = 0; idx < extents; idx++) {
 		first = map->extent[idx].lower_first;
 		last = first + map->extent[idx].count - 1;
@@ -212,7 +225,7 @@ static u32 map_id_up(struct uid_gid_map *map, u32 id)
  *
  *	When there is no mapping defined for the user-namespace uid
  *	pair INVALID_UID is returned.  Callers are expected to test
- *	for and handle handle INVALID_UID being returned.  INVALID_UID
+ *	for and handle INVALID_UID being returned.  INVALID_UID
  *	may be tested for using uid_valid().
  */
 kuid_t make_kuid(struct user_namespace *ns, uid_t uid)
@@ -602,9 +615,8 @@ static ssize_t map_write(struct file *file, const char __user *buf,
 	 * were written before the count of the extents.
 	 *
 	 * To achieve this smp_wmb() is used on guarantee the write
-	 * order and smp_read_barrier_depends() is guaranteed that we
-	 * don't have crazy architectures returning stale data.
-	 *
+	 * order and smp_rmb() is guaranteed that we don't have crazy
+	 * architectures returning stale data.
 	 */
 	mutex_lock(&id_map_mutex);
 
@@ -889,4 +901,4 @@ static __init int user_namespaces_init(void)
 	user_ns_cachep = KMEM_CACHE(user_namespace, SLAB_PANIC);
 	return 0;
 }
-module_init(user_namespaces_init);
+subsys_initcall(user_namespaces_init);

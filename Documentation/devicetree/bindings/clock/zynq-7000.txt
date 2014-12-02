@@ -7,13 +7,14 @@ See clock_bindings.txt for more information on the generic clock bindings.
 See Chapter 25 of Zynq TRM for more information about Zynq clocks.
 
 == Clock Controller ==
-The clock controller is a logical abstration of Zynq's clock tree. It reads
-required input clock frequencies from the devictree and acts as clock provider
+The clock controller is a logical abstraction of Zynq's clock tree. It reads
+required input clock frequencies from the devicetree and acts as clock provider
 for all clock consumers of PS clocks.
 
 Required properties:
  - #clock-cells : Must be 1
  - compatible : "xlnx,ps7-clkc"
+ - reg : SLCR offset and size taken via syscon < 0x100 0x100 >
  - ps-clk-frequency : Frequency of the oscillator providing ps_clk in HZ
 		      (usually 33 MHz oscillators are used for Zynq platforms)
  - clock-output-names : List of strings used to name the clock outputs. Shall be
@@ -22,10 +23,10 @@ Required properties:
 Optional properties:
  - clocks : as described in the clock bindings
  - clock-names : as described in the clock bindings
- - fclk-enable : Bit mask to enable FCLKs in cases no proper CCF compatible
-		 driver is available. Bit [0..3] correspond to FCLK0..FCLK3. The
-		 corresponding FCLK will only be enabled if it is actually
-		 running at boot time.
+ - fclk-enable : Bit mask to enable FCLKs statically at boot time.
+		 Bit [0..3] correspond to FCLK0..FCLK3. The corresponding
+		 FCLK will only be enabled if it is actually running at
+		 boot time.
 
 Clock inputs:
 The following strings are optional parameters to the 'clock-names' property in
@@ -87,12 +88,23 @@ Clock outputs:
  47: dbg_apb
 
 Example:
-	clkc: clkc {
-                #clock-cells = <1>;
-                compatible = "xlnx,ps7-clkc";
-                ps-clk-frequency = <33333333>;
-		clock-output-names = "armpll", "ddrpll", "iopll", "cpu_6or4x", "cpu_3or2x", "cpu_2x", "cpu_1x", "ddr2x", "ddr3x", "dci", "lqspi", "smc", "pcap", "gem0", "gem1", "fclk0", "fclk1", "fclk2", "fclk3", "can0", "can1", "sdio0", "sdio1", "uart0", "uart1", "spi0", "spi1", "dma", "usb0_aper", "usb1_aper", "gem0_aper", "gem1_aper", "sdio0_aper", "sdio1_aper", "spi0_aper", "spi1_aper", "can0_aper", "can1_aper", "i2c0_aper", "i2c1_aper", "uart0_aper", "uart1_aper", "gpio_aper", "lqspi_aper", "smc_aper", "swdt", "dbg_trc", "dbg_apb";
-                # optional props
+	clkc: clkc@100 {
+		#clock-cells = <1>;
+		compatible = "xlnx,ps7-clkc";
+		ps-clk-frequency = <33333333>;
+		reg = <0x100 0x100>;
+		clock-output-names = "armpll", "ddrpll", "iopll", "cpu_6or4x",
+				"cpu_3or2x", "cpu_2x", "cpu_1x", "ddr2x", "ddr3x",
+				"dci", "lqspi", "smc", "pcap", "gem0", "gem1",
+				"fclk0", "fclk1", "fclk2", "fclk3", "can0", "can1",
+				"sdio0", "sdio1", "uart0", "uart1", "spi0", "spi1",
+				"dma", "usb0_aper", "usb1_aper", "gem0_aper",
+				"gem1_aper", "sdio0_aper", "sdio1_aper",
+				"spi0_aper", "spi1_aper", "can0_aper", "can1_aper",
+				"i2c0_aper", "i2c1_aper", "uart0_aper", "uart1_aper",
+				"gpio_aper", "lqspi_aper", "smc_aper", "swdt",
+				"dbg_trc", "dbg_apb";
+		# optional props
 		clocks = <&clkc 16>, <&clk_foo>;
 		clock-names = "gem1_emio_clk", "can_mio_clk_23";
-        };
+	};

@@ -114,7 +114,7 @@ struct hfsc_class {
 
 	struct gnet_stats_basic_packed bstats;
 	struct gnet_stats_queue qstats;
-	struct gnet_stats_rate_est rate_est;
+	struct gnet_stats_rate_est64 rate_est;
 	unsigned int	level;		/* class level in hierarchy */
 	struct tcf_proto *filter_list;	/* filter list */
 	unsigned int	filter_cnt;	/* filter count */
@@ -1353,8 +1353,7 @@ hfsc_dump_class(struct Qdisc *sch, unsigned long arg, struct sk_buff *skb,
 		goto nla_put_failure;
 	if (hfsc_dump_curves(skb, cl) < 0)
 		goto nla_put_failure;
-	nla_nest_end(skb, nest);
-	return skb->len;
+	return nla_nest_end(skb, nest);
 
  nla_put_failure:
 	nla_nest_cancel(skb, nest);

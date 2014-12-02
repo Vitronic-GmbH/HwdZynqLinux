@@ -135,7 +135,7 @@ config PHANTOM
 
 config INTEL_MID_PTI
 	tristate "Parallel Trace Interface for MIPI P1149.7 cJTAG standard"
-	depends on PCI && TTY
+	depends on PCI && TTY && (X86_INTEL_MID || COMPILE_TEST)
 	default n
 	help
 	  The PTI (Parallel Trace Interface) driver directs
@@ -235,7 +235,7 @@ config SGI_XP
 
 config CS5535_MFGPT
 	tristate "CS5535/CS5536 Geode Multi-Function General Purpose Timer (MFGPT) support"
-	depends on PCI && X86 && MFD_CS5535
+	depends on MFD_CS5535
 	default n
 	help
 	  This driver provides access to MFGPT functionality for other
@@ -300,8 +300,8 @@ config SGI_GRU_DEBUG
 	depends on SGI_GRU
 	default n
 	---help---
-	This option enables addition debugging code for the SGI GRU driver. If
-	you are unsure, say N.
+	This option enables additional debugging code for the SGI GRU driver.
+	If you are unsure, say N.
 
 config APDS9802ALS
 	tristate "Medfield Avago APDS9802 ALS Sensor module"
@@ -380,19 +380,6 @@ config HMC6352
 	help
 	  This driver provides support for the Honeywell HMC6352 compass,
 	  providing configuration and heading data via sysfs.
-
-config EP93XX_PWM
-	tristate "EP93xx PWM support"
-	depends on ARCH_EP93XX
-	help
-	  This option enables device driver support for the PWM channels
-	  on the Cirrus EP93xx processors.  The EP9307 chip only has one
-	  PWM channel all the others have two, the second channel is an
-	  alternate function of the EGPIO14 pin.  A sysfs interface is
-	  provided to control the PWM channels.
-
-	  To compile this driver as a module, choose M here: the module will
-	  be called ep93xx_pwm.
 
 config DS1682
 	tristate "Dallas DS1682 Total Elapsed Time Recorder with Alarm"
@@ -480,6 +467,7 @@ config BMP085_SPI
 
 config PCH_PHUB
 	tristate "Intel EG20T PCH/LAPIS Semicon IOH(ML7213/ML7223/ML7831) PHUB"
+	select GENERIC_NET_UTILS
 	depends on PCI
 	help
 	  This driver is for PCH(Platform controller Hub) PHUB(Packet Hub) of
@@ -507,16 +495,6 @@ config USB_SWITCH_FSA9480
 	  stereo and mono audio, video, microphone and UART data to use
 	  a common connector port.
 
-config SI570
-	tristate "Silicon Labs Si570 Clock Generator"
-	depends on I2C && SYSFS
-	help
-	  If you say yes here you get support for the Silicon Labs Si570
-	  digital clock generator.
-
-	  To compile this driver as a module, choose M here: the module
-	  will be called si570
-
 config LATTICE_ECP3_CONFIG
 	tristate "Lattice ECP3 FPGA bitstream configuration via SPI"
 	depends on SPI && SYSFS
@@ -539,7 +517,7 @@ config SRAM
 
 config XILINX_TRAFGEN
 	tristate "Xilinx Traffic Generator"
-	depends on MICROBLAZE
+	depends on MICROBLAZE || ARCH_ZYNQ
 	help
 	  This option enables support for the Xilinx Traffic Generator driver.
 	  It is designed to generate AXI4 traffic which can be used to stress
@@ -559,4 +537,7 @@ source "drivers/misc/carma/Kconfig"
 source "drivers/misc/altera-stapl/Kconfig"
 source "drivers/misc/mei/Kconfig"
 source "drivers/misc/vmw_vmci/Kconfig"
+source "drivers/misc/mic/Kconfig"
+source "drivers/misc/genwqe/Kconfig"
+source "drivers/misc/echo/Kconfig"
 endmenu

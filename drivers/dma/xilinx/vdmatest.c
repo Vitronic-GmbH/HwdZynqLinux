@@ -1,29 +1,38 @@
 /*
- * XILINX VDMA Engine test module
+ * XILINX VDMA Engine test client driver
  *
- * Copyright (C) 2012 Xilinx, Inc. All rights reserved.
+ * Copyright (C) 2010-2014 Xilinx, Inc. All rights reserved.
  *
  * Based on Atmel DMA Test Client
+ *
+ * Description:
+ * This is a simple Xilinx VDMA test client for AXI VDMA driver.
+ * This test assumes both the channels of VDMA are enabled in the
+ * hardware design and configured in back-to-back connection. Test
+ * starts by pumping the data onto one channel (MM2S) and then
+ * compares the data that is received on the other channel (S2MM).
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+
+#include <linux/amba/xilinx_dma.h>
 #include <linux/delay.h>
-#include <linux/dmaengine.h>
 #include <linux/init.h>
 #include <linux/kthread.h>
 #include <linux/module.h>
+#include <linux/of_dma.h>
+#include <linux/platform_device.h>
 #include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/wait.h>
-#include <linux/amba/xilinx_dma.h>
 
 static unsigned int test_buf_size = 64;
 module_param(test_buf_size, uint, S_IRUGO);
 MODULE_PARM_DESC(test_buf_size, "Size of the memcpy test buffer");
 
-static unsigned int iterations;
+static unsigned int iterations = 1;
 module_param(iterations, uint, S_IRUGO);
 MODULE_PARM_DESC(iterations,
 		"Iterations before stopping test (default: infinite)");
@@ -45,7 +54,20 @@ MODULE_PARM_DESC(iterations,
 #define PATTERN_OVERWRITE	0x20
 #define PATTERN_COUNT_MASK	0x1f
 
-struct vdmatest_slave_thread {
+/* Maximum number of frame buffers */
+#define MAX_NUM_FRAMES	32
+
+/**
+ * struct vdmatest_slave_thread - VDMA test thread
+ * @node: Thread node
+ * @task: Task structure pointer
+ * @tx_chan: Tx channel pointer
+ * @rx_chan: Rx Channel pointer
+ * @srcs: Source buffer
+ * @dsts: Destination buffer
+ * @type: DMA transaction type
+ */
+struct xilinx_vdmatest_slave_thread {
 	struct list_head node;
 	struct task_struct *task;
 	struct dma_chan *tx_chan;
@@ -53,22 +75,50 @@ struct vdmatest_slave_thread {
 	u8 **srcs;
 	u8 **dsts;
 	enum dma_transaction_type type;
+	bool done;
 };
 
-struct vdmatest_chan {
+/**
+ * struct vdmatest_chan - VDMA Test channel
+ * @node: Channel node
+ * @chan: DMA channel pointer
+ * @threads: List of VDMA test threads
+ */
+struct xilinx_vdmatest_chan {
 	struct list_head node;
 	struct dma_chan *chan;
 	struct list_head threads;
 };
 
-/*
- * These are protected by dma_list_mutex since they're only used by
- * the DMA filter function callback
- */
-static LIST_HEAD(vdmatest_channels);
+/* Global variables */
+static DECLARE_WAIT_QUEUE_HEAD(thread_wait);
+static LIST_HEAD(xilinx_vdmatest_channels);
 static unsigned int nr_channels;
+static unsigned int frm_cnt;
+static dma_addr_t dma_srcs[MAX_NUM_FRAMES];
+static dma_addr_t dma_dsts[MAX_NUM_FRAMES];
+static struct dma_interleaved_template xt;
 
-static void vdmatest_init_srcs(u8 **bufs, unsigned int start, unsigned int len)
+static bool is_threaded_test_run(struct xilinx_vdmatest_chan *tx_dtc,
+					struct xilinx_vdmatest_chan *rx_dtc)
+{
+	struct xilinx_vdmatest_slave_thread *thread;
+	int ret = false;
+
+	list_for_each_entry(thread, &tx_dtc->threads, node) {
+		if (!thread->done)
+			ret = true;
+	}
+
+	list_for_each_entry(thread, &rx_dtc->threads, node) {
+		if (!thread->done)
+			ret = true;
+	}
+	return ret;
+}
+
+static void xilinx_vdmatest_init_srcs(u8 **bufs, unsigned int start,
+					unsigned int len)
 {
 	unsigned int i;
 	u8 *buf;
@@ -76,16 +126,17 @@ static void vdmatest_init_srcs(u8 **bufs, unsigned int start, unsigned int len)
 	for (; (buf = *bufs); bufs++) {
 		for (i = 0; i < start; i++)
 			buf[i] = PATTERN_SRC | (~i & PATTERN_COUNT_MASK);
-		for ( ; i < start + len; i++)
+		for (; i < start + len; i++)
 			buf[i] = PATTERN_SRC | PATTERN_COPY
 				| (~i & PATTERN_COUNT_MASK);
-		for ( ; i < test_buf_size; i++)
+		for (; i < test_buf_size; i++)
 			buf[i] = PATTERN_SRC | (~i & PATTERN_COUNT_MASK);
 		buf++;
 	}
 }
 
-static void vdmatest_init_dsts(u8 **bufs, unsigned int start, unsigned int len)
+static void xilinx_vdmatest_init_dsts(u8 **bufs, unsigned int start,
+					unsigned int len)
 {
 	unsigned int i;
 	u8 *buf;
@@ -93,15 +144,15 @@ static void vdmatest_init_dsts(u8 **bufs, unsigned int start, unsigned int len)
 	for (; (buf = *bufs); bufs++) {
 		for (i = 0; i < start; i++)
 			buf[i] = PATTERN_DST | (~i & PATTERN_COUNT_MASK);
-		for ( ; i < start + len; i++)
+		for (; i < start + len; i++)
 			buf[i] = PATTERN_DST | PATTERN_OVERWRITE
 				| (~i & PATTERN_COUNT_MASK);
-		for ( ; i < test_buf_size; i++)
+		for (; i < test_buf_size; i++)
 			buf[i] = PATTERN_DST | (~i & PATTERN_COUNT_MASK);
 	}
 }
 
-static void vdmatest_mismatch(u8 actual, u8 pattern, unsigned int index,
+static void xilinx_vdmatest_mismatch(u8 actual, u8 pattern, unsigned int index,
 		unsigned int counter, bool is_srcbuf)
 {
 	u8 diff = actual ^ pattern;
@@ -127,15 +178,12 @@ static void vdmatest_mismatch(u8 actual, u8 pattern, unsigned int index,
 				thread_name, index, expected, actual);
 }
 
-static unsigned int vdmatest_verify(u8 **bufs, unsigned int start,
+static unsigned int xilinx_vdmatest_verify(u8 **bufs, unsigned int start,
 		unsigned int end, unsigned int counter, u8 pattern,
 		bool is_srcbuf)
 {
-	unsigned int i;
-	unsigned int error_count = 0;
-	u8 actual;
-	u8 expected;
-	u8 *buf;
+	unsigned int i, error_count = 0;
+	u8 actual, expected, *buf;
 	unsigned int counter_orig = counter;
 
 	for (; (buf = *bufs); bufs++) {
@@ -145,7 +193,8 @@ static unsigned int vdmatest_verify(u8 **bufs, unsigned int start,
 			expected = pattern | (~counter & PATTERN_COUNT_MASK);
 			if (actual != expected) {
 				if (error_count < 32)
-					vdmatest_mismatch(actual, pattern, i,
+					xilinx_vdmatest_mismatch(actual,
+							pattern, i,
 							counter, is_srcbuf);
 				error_count++;
 			}
@@ -160,13 +209,13 @@ static unsigned int vdmatest_verify(u8 **bufs, unsigned int start,
 	return error_count;
 }
 
-static void vdmatest_slave_tx_callback(void *completion)
+static void xilinx_vdmatest_slave_tx_callback(void *completion)
 {
 	pr_debug("Got tx callback\n");
 	complete(completion);
 }
 
-static void vdmatest_slave_rx_callback(void *completion)
+static void xilinx_vdmatest_slave_rx_callback(void *completion)
 {
 	pr_debug("Got rx callback\n");
 	complete(completion);
@@ -176,34 +225,28 @@ static void vdmatest_slave_rx_callback(void *completion)
  * Function for slave transfers
  * Each thread requires 2 channels, one for transmit, and one for receive
  */
-static int vdmatest_slave_func(void *data)
+static int xilinx_vdmatest_slave_func(void *data)
 {
-	struct vdmatest_slave_thread *thread = data;
-	struct dma_chan *tx_chan;
-	struct dma_chan *rx_chan;
+	struct xilinx_vdmatest_slave_thread *thread = data;
+	struct dma_chan *tx_chan, *rx_chan;
 	const char *thread_name;
-	unsigned int len;
-	unsigned int error_count;
-	unsigned int failed_tests = 0;
-	unsigned int total_tests = 0;
-	dma_cookie_t tx_cookie;
-	dma_cookie_t rx_cookie;
+	unsigned int len, error_count;
+	unsigned int failed_tests = 0, total_tests = 0;
+	dma_cookie_t tx_cookie, rx_cookie;
 	enum dma_status status;
 	enum dma_ctrl_flags flags;
-	int ret;
-	int frm_cnt = 8;
-	int i;
-	int hsize = 64;
-	int vsize = 32;
+	int ret = -ENOMEM, i;
+	int hsize = 64, vsize = 32;
 	struct xilinx_vdma_config config;
+
 	thread_name = current->comm;
 
-	ret = -ENOMEM;
-
-	/* JZ: limit testing scope here */
-	iterations = 1;
+	/* Limit testing scope here */
 	test_buf_size = hsize * vsize;
 
+	/* This barrier ensures 'thread' is initialized and
+	 * we get valid DMA channels
+	 */
 	smp_rmb();
 	tx_chan = thread->tx_chan;
 	rx_chan = thread->rx_chan;
@@ -216,7 +259,6 @@ static int vdmatest_slave_func(void *data)
 		if (!thread->srcs[i])
 			goto err_srcbuf;
 	}
-	thread->srcs[i] = NULL;
 
 	thread->dsts = kcalloc(frm_cnt+1, sizeof(u8 *), GFP_KERNEL);
 	if (!thread->dsts)
@@ -226,11 +268,10 @@ static int vdmatest_slave_func(void *data)
 		if (!thread->dsts[i])
 			goto err_dstbuf;
 	}
-	thread->dsts[i] = NULL;
 
 	set_user_nice(current, 10);
 
-	flags = DMA_CTRL_ACK | DMA_COMPL_SKIP_DEST_UNMAP | DMA_PREP_INTERRUPT;
+	flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
 
 	while (!kthread_should_stop()
 		&& !(iterations && total_tests >= iterations)) {
@@ -238,16 +279,11 @@ static int vdmatest_slave_func(void *data)
 		struct dma_device *rx_dev = rx_chan->device;
 		struct dma_async_tx_descriptor *txd = NULL;
 		struct dma_async_tx_descriptor *rxd = NULL;
-		dma_addr_t dma_srcs[frm_cnt];
-		dma_addr_t dma_dsts[frm_cnt];
-		struct completion rx_cmp;
-		struct completion tx_cmp;
+		struct completion rx_cmp, tx_cmp;
 		unsigned long rx_tmo =
 				msecs_to_jiffies(30000); /* RX takes longer */
 		unsigned long tx_tmo = msecs_to_jiffies(30000);
 		u8 align = 0;
-		struct scatterlist tx_sg[frm_cnt];
-		struct scatterlist rx_sg[frm_cnt];
 
 		total_tests++;
 
@@ -263,63 +299,60 @@ static int vdmatest_slave_func(void *data)
 		}
 
 		len = test_buf_size;
-		vdmatest_init_srcs(thread->srcs, 0, len);
-		vdmatest_init_dsts(thread->dsts, 0, len);
+		xilinx_vdmatest_init_srcs(thread->srcs, 0, len);
+		xilinx_vdmatest_init_dsts(thread->dsts, 0, len);
 
-		sg_init_table(tx_sg, frm_cnt);
-		sg_init_table(rx_sg, frm_cnt);
+		/* Zero out configuration */
+		memset(&config, 0, sizeof(struct xilinx_vdma_config));
 
-		for (i = 0; i < frm_cnt; i++) {
-			u8 *buf = thread->srcs[i];
+		/* Set up hardware configuration information */
+		config.frm_cnt_en = 1;
+		config.coalesc = frm_cnt * 10;
+		config.park = 1;
+		xilinx_vdma_channel_set_config(tx_chan, &config);
 
-			dma_srcs[i] = dma_map_single(tx_dev->dev, buf, len,
-							DMA_MEM_TO_DEV);
-			pr_debug("src buf %x dma %x\n", (unsigned int)buf,
-							dma_srcs[i]);
-			sg_dma_address(&tx_sg[i]) = dma_srcs[i];
-			sg_dma_len(&tx_sg[i]) = len;
-		}
+		config.park = 0;
+		xilinx_vdma_channel_set_config(rx_chan, &config);
 
 		for (i = 0; i < frm_cnt; i++) {
 			dma_dsts[i] = dma_map_single(rx_dev->dev,
 							thread->dsts[i],
 							test_buf_size,
 							DMA_DEV_TO_MEM);
-			pr_debug("dst %x dma %x\n",
-					(unsigned int)thread->dsts[i],
-					dma_dsts[i]);
-			sg_dma_address(&rx_sg[i]) = dma_dsts[i];
-			sg_dma_len(&rx_sg[i]) = len;
+
+			if (dma_mapping_error(rx_dev->dev, dma_dsts[i])) {
+				failed_tests++;
+				continue;
+			}
+			xt.dst_start = dma_dsts[i];
+			xt.dir = DMA_DEV_TO_MEM;
+			xt.numf = vsize;
+			xt.sgl[0].size = hsize;
+			xt.sgl[0].icg = 0;
+			xt.frame_size = 1;
+			rxd = rx_dev->device_prep_interleaved_dma(rx_chan,
+								  &xt, flags);
 		}
 
-		/* Set up hardware configuration information */
-		config.direction = DMA_MEM_TO_DEV;
-		config.vsize = vsize;
-		config.hsize = hsize;
-		config.stride = hsize;
-		config.frm_cnt_en = 1;
-		config.coalesc = frm_cnt * 10;
-		config.delay = 0;
-		/* The following is do-not-care, need to set to 0 */
-		config.frm_dly = 0;
-		config.park = 1;
-		config.gen_lock = 0;
-		config.master = 0;
-		config.park_frm = 0;
-		config.disable_intr = 0;
-		tx_dev->device_control(tx_chan, DMA_SLAVE_CONFIG,
-					(unsigned long)&config);
+		for (i = 0; i < frm_cnt; i++) {
+			u8 *buf = thread->srcs[i];
 
-		config.direction = DMA_DEV_TO_MEM;
-		config.park = 0;
-		rx_dev->device_control(rx_chan, DMA_SLAVE_CONFIG,
-					(unsigned long)&config);
+			dma_srcs[i] = dma_map_single(tx_dev->dev, buf, len,
+							DMA_MEM_TO_DEV);
 
-		rxd = rx_dev->device_prep_slave_sg(rx_chan, rx_sg, frm_cnt,
-				DMA_DEV_TO_MEM, flags, NULL);
-
-		txd = tx_dev->device_prep_slave_sg(tx_chan, tx_sg, frm_cnt,
-				DMA_MEM_TO_DEV, flags, NULL);
+			if (dma_mapping_error(tx_dev->dev, dma_srcs[i])) {
+				failed_tests++;
+				continue;
+			}
+			xt.src_start = dma_srcs[i];
+			xt.dir = DMA_MEM_TO_DEV;
+			xt.numf = vsize;
+			xt.sgl[0].size = hsize;
+			xt.sgl[0].icg = 0;
+			xt.frame_size = 1;
+			txd = tx_dev->device_prep_interleaved_dma(tx_chan,
+								  &xt, flags);
+		}
 
 		if (!rxd || !txd) {
 			for (i = 0; i < frm_cnt; i++)
@@ -337,12 +370,12 @@ static int vdmatest_slave_func(void *data)
 		}
 
 		init_completion(&rx_cmp);
-		rxd->callback = vdmatest_slave_rx_callback;
+		rxd->callback = xilinx_vdmatest_slave_rx_callback;
 		rxd->callback_param = &rx_cmp;
 		rx_cookie = rxd->tx_submit(rxd);
 
 		init_completion(&tx_cmp);
-		txd->callback = vdmatest_slave_tx_callback;
+		txd->callback = xilinx_vdmatest_slave_tx_callback;
 		txd->callback_param = &tx_cmp;
 		tx_cookie = txd->tx_submit(txd);
 
@@ -368,7 +401,7 @@ static int vdmatest_slave_func(void *data)
 					thread_name, total_tests - 1);
 			failed_tests++;
 			continue;
-		} else if (status != DMA_SUCCESS) {
+		} else if (status != DMA_COMPLETE) {
 			pr_warn(
 			"%s: #%u: tx got completion callback, ",
 				   thread_name, total_tests - 1);
@@ -388,7 +421,7 @@ static int vdmatest_slave_func(void *data)
 					thread_name, total_tests - 1);
 			failed_tests++;
 			continue;
-		} else if (status != DMA_SUCCESS) {
+		} else if (status != DMA_COMPLETE) {
 			pr_warn(
 			"%s: #%u: rx got completion callback, ",
 					thread_name, total_tests - 1);
@@ -399,7 +432,7 @@ static int vdmatest_slave_func(void *data)
 			continue;
 		}
 
-		/* Unmap by myself (see DMA_COMPL_SKIP_DEST_UNMAP above) */
+		/* Unmap by myself */
 		for (i = 0; i < frm_cnt; i++)
 			dma_unmap_single(rx_dev->dev, dma_dsts[i],
 					 test_buf_size, DMA_DEV_TO_MEM);
@@ -407,20 +440,20 @@ static int vdmatest_slave_func(void *data)
 		error_count = 0;
 
 		pr_debug("%s: verifying source buffer...\n", thread_name);
-		error_count += vdmatest_verify(thread->srcs, 0, 0,
+		error_count += xilinx_vdmatest_verify(thread->srcs, 0, 0,
 				0, PATTERN_SRC, true);
-		error_count += vdmatest_verify(thread->srcs, 0,
+		error_count += xilinx_vdmatest_verify(thread->srcs, 0,
 				len, 0, PATTERN_SRC | PATTERN_COPY, true);
-		error_count += vdmatest_verify(thread->srcs, len,
+		error_count += xilinx_vdmatest_verify(thread->srcs, len,
 				test_buf_size, len, PATTERN_SRC, true);
 
 		pr_debug("%s: verifying dest buffer...\n",
 				thread->task->comm);
-		error_count += vdmatest_verify(thread->dsts, 0, 0,
+		error_count += xilinx_vdmatest_verify(thread->dsts, 0, 0,
 				0, PATTERN_DST, false);
-		error_count += vdmatest_verify(thread->dsts, 0,
+		error_count += xilinx_vdmatest_verify(thread->dsts, 0,
 				len, 0, PATTERN_SRC | PATTERN_COPY, false);
-		error_count += vdmatest_verify(thread->dsts, len,
+		error_count += xilinx_vdmatest_verify(thread->dsts, len,
 				test_buf_size, len, PATTERN_DST, false);
 
 		if (error_count) {
@@ -447,25 +480,21 @@ err_srcs:
 	pr_notice("%s: terminating after %u tests, %u failures (status %d)\n",
 			thread_name, total_tests, failed_tests, ret);
 
-	if (iterations > 0)
-		while (!kthread_should_stop()) {
-			DECLARE_WAIT_QUEUE_HEAD_ONSTACK(wait_vdmatest_exit);
-			interruptible_sleep_on(&wait_vdmatest_exit);
-		}
+	thread->done = true;
+	wake_up(&thread_wait);
 
 	return ret;
 }
 
-static void vdmatest_cleanup_channel(struct vdmatest_chan *dtc)
+static void xilinx_vdmatest_cleanup_channel(struct xilinx_vdmatest_chan *dtc)
 {
-	struct vdmatest_slave_thread *thread;
-	struct vdmatest_slave_thread *_thread;
+	struct xilinx_vdmatest_slave_thread *thread, *_thread;
 	int ret;
 
 	list_for_each_entry_safe(thread, _thread,
 				&dtc->threads, node) {
 		ret = kthread_stop(thread->task);
-		pr_info("vdmatest: thread %s exited with status %d\n",
+		pr_info("xilinx_vdmatest: thread %s exited with status %d\n",
 				thread->task->comm, ret);
 		list_del(&thread->node);
 		kfree(thread);
@@ -473,33 +502,35 @@ static void vdmatest_cleanup_channel(struct vdmatest_chan *dtc)
 	kfree(dtc);
 }
 
-static int vdmatest_add_slave_threads(struct vdmatest_chan *tx_dtc,
-					struct vdmatest_chan *rx_dtc)
+static int
+xilinx_vdmatest_add_slave_threads(struct xilinx_vdmatest_chan *tx_dtc,
+					struct xilinx_vdmatest_chan *rx_dtc)
 {
-	struct vdmatest_slave_thread *thread;
+	struct xilinx_vdmatest_slave_thread *thread;
 	struct dma_chan *tx_chan = tx_dtc->chan;
 	struct dma_chan *rx_chan = rx_dtc->chan;
 
-	thread = kzalloc(sizeof(struct vdmatest_slave_thread), GFP_KERNEL);
-	if (!thread) {
-		pr_warn("vdmatest: No memory for slave thread %s-%s\n",
+	thread = kzalloc(sizeof(struct xilinx_vdmatest_slave_thread),
+			GFP_KERNEL);
+	if (!thread)
+		pr_warn("xilinx_vdmatest: No memory for slave thread %s-%s\n",
 			   dma_chan_name(tx_chan), dma_chan_name(rx_chan));
-
-	}
 
 	thread->tx_chan = tx_chan;
 	thread->rx_chan = rx_chan;
 	thread->type = (enum dma_transaction_type)DMA_SLAVE;
+
+	/* This barrier ensures the DMA channels in the 'thread'
+	 * are initialized
+	 */
 	smp_wmb();
-	thread->task = kthread_run(vdmatest_slave_func, thread, "%s-%s",
+	thread->task = kthread_run(xilinx_vdmatest_slave_func, thread, "%s-%s",
 		dma_chan_name(tx_chan), dma_chan_name(rx_chan));
 	if (IS_ERR(thread->task)) {
-		pr_warn("vdmatest: Failed to run thread %s-%s\n",
+		pr_warn("xilinx_vdmatest: Failed to run thread %s-%s\n",
 				dma_chan_name(tx_chan), dma_chan_name(rx_chan));
 		kfree(thread);
 	}
-
-	/* srcbuf and dstbuf are allocated by the thread itself */
 
 	list_add_tail(&thread->node, &tx_dtc->threads);
 
@@ -507,120 +538,113 @@ static int vdmatest_add_slave_threads(struct vdmatest_chan *tx_dtc,
 	return 1;
 }
 
-static int vdmatest_add_slave_channels(struct dma_chan *tx_chan,
+static int xilinx_vdmatest_add_slave_channels(struct dma_chan *tx_chan,
 					struct dma_chan *rx_chan)
 {
-	struct vdmatest_chan *tx_dtc;
-	struct vdmatest_chan *rx_dtc;
+	struct xilinx_vdmatest_chan *tx_dtc, *rx_dtc;
 	unsigned int thread_count = 0;
 
-	tx_dtc = kmalloc(sizeof(struct vdmatest_chan), GFP_KERNEL);
-	if (!tx_dtc) {
-		pr_warn("vdmatest: No memory for tx %s\n",
-					dma_chan_name(tx_chan));
+	tx_dtc = kmalloc(sizeof(struct xilinx_vdmatest_chan), GFP_KERNEL);
+	if (!tx_dtc)
 		return -ENOMEM;
-	}
 
-	rx_dtc = kmalloc(sizeof(struct vdmatest_chan), GFP_KERNEL);
-	if (!rx_dtc) {
-		pr_warn("vdmatest: No memory for rx %s\n",
-					dma_chan_name(rx_chan));
+	rx_dtc = kmalloc(sizeof(struct xilinx_vdmatest_chan), GFP_KERNEL);
+	if (!rx_dtc)
 		return -ENOMEM;
-	}
 
 	tx_dtc->chan = tx_chan;
 	rx_dtc->chan = rx_chan;
 	INIT_LIST_HEAD(&tx_dtc->threads);
 	INIT_LIST_HEAD(&rx_dtc->threads);
 
-	vdmatest_add_slave_threads(tx_dtc, rx_dtc);
+	xilinx_vdmatest_add_slave_threads(tx_dtc, rx_dtc);
 	thread_count += 1;
 
-	pr_info("vdmatest: Started %u threads using %s %s\n",
+	pr_info("xilinx_vdmatest: Started %u threads using %s %s\n",
 		thread_count, dma_chan_name(tx_chan), dma_chan_name(rx_chan));
 
-	list_add_tail(&tx_dtc->node, &vdmatest_channels);
-	list_add_tail(&rx_dtc->node, &vdmatest_channels);
+	list_add_tail(&tx_dtc->node, &xilinx_vdmatest_channels);
+	list_add_tail(&rx_dtc->node, &xilinx_vdmatest_channels);
 	nr_channels += 2;
+
+	if (iterations)
+		wait_event(thread_wait, !is_threaded_test_run(tx_dtc, rx_dtc));
 
 	return 0;
 }
 
-static bool xdma_filter(struct dma_chan *chan, void *param)
+static int xilinx_vdmatest_probe(struct platform_device *pdev)
 {
-	if (*((int *)chan->private) == *(int *)param)
-		return true;
+	struct dma_chan *chan, *rx_chan;
+	int err;
 
-	return false;
-}
-
-static int __init vdmatest_init(void)
-{
-	dma_cap_mask_t mask;
-	struct dma_chan *chan;
-	int err = 0;
-
-	enum dma_data_direction direction;
-	u32 match, device_id = 0;
-	struct dma_chan *rx_chan;
-
-	dma_cap_zero(mask);
-	dma_cap_set(DMA_SLAVE | DMA_PRIVATE, mask);
-
-	for (;;) {
-		direction = DMA_MEM_TO_DEV;
-		match = (direction & 0xFF) | XILINX_DMA_IP_VDMA |
-				device_id << XILINX_DMA_DEVICE_ID_SHIFT;
-		pr_debug("vdmatest: match is %x\n", match);
-
-		chan = dma_request_channel(mask, xdma_filter, (void *)&match);
-
-		if (chan)
-			pr_debug("vdmatest: Found tx device\n");
-		else
-			pr_debug("vdmatest: No more tx channels available\n");
-
-		direction = DMA_DEV_TO_MEM;
-		match = (direction & 0xFF) | XILINX_DMA_IP_VDMA |
-				device_id << XILINX_DMA_DEVICE_ID_SHIFT;
-		rx_chan = dma_request_channel(mask, xdma_filter, &match);
-
-		if (rx_chan)
-			pr_debug("vdmatest: Found rx device\n");
-		else
-			pr_debug("vdmatest: No more rx channels available\n");
-
-		if (chan && rx_chan) {
-			err = vdmatest_add_slave_channels(chan, rx_chan);
-			if (err) {
-				dma_release_channel(chan);
-				dma_release_channel(rx_chan);
-			}
-		} else
-			break;
-
-		device_id++;
+	err = of_property_read_u32(pdev->dev.of_node,
+					"xlnx,num-fstores", &frm_cnt);
+	if (err < 0) {
+		pr_err("xilinx_vdmatest: missing xlnx,num-fstores property\n");
+		return err;
 	}
+
+	chan = dma_request_slave_channel(&pdev->dev, "vdma0");
+	if (IS_ERR(chan)) {
+		pr_err("xilinx_vdmatest: No Tx channel\n");
+		return PTR_ERR(chan);
+	}
+
+	rx_chan = dma_request_slave_channel(&pdev->dev, "vdma1");
+	if (IS_ERR(rx_chan)) {
+		err = PTR_ERR(rx_chan);
+		pr_err("xilinx_vdmatest: No Rx channel\n");
+		goto free_tx;
+	}
+
+	err = xilinx_vdmatest_add_slave_channels(chan, rx_chan);
+	if (err) {
+		pr_err("xilinx_vdmatest: Unable to add channels\n");
+		goto free_rx;
+	}
+	return 0;
+
+free_rx:
+	dma_release_channel(rx_chan);
+free_tx:
+	dma_release_channel(chan);
+
 	return err;
 }
-/* when compiled-in wait for drivers to load first */
-late_initcall(vdmatest_init);
 
-static void __exit vdmatest_exit(void)
+static int xilinx_vdmatest_remove(struct platform_device *pdev)
 {
-	struct vdmatest_chan *dtc, *_dtc;
+	struct xilinx_vdmatest_chan *dtc, *_dtc;
 	struct dma_chan *chan;
 
-	list_for_each_entry_safe(dtc, _dtc, &vdmatest_channels, node) {
+	list_for_each_entry_safe(dtc, _dtc, &xilinx_vdmatest_channels, node) {
 		list_del(&dtc->node);
 		chan = dtc->chan;
-		vdmatest_cleanup_channel(dtc);
-		pr_info("vdmatest: dropped channel %s\n",
+		xilinx_vdmatest_cleanup_channel(dtc);
+		pr_info("xilinx_vdmatest: dropped channel %s\n",
 			dma_chan_name(chan));
 		dma_release_channel(chan);
 	}
+	return 0;
 }
-module_exit(vdmatest_exit);
+
+static const struct of_device_id xilinx_vdmatest_of_ids[] = {
+	{ .compatible = "xlnx,axi-vdma-test-1.00.a",},
+	{}
+};
+
+static struct platform_driver xilinx_vdmatest_driver = {
+	.driver = {
+		.name = "xilinx_vdmatest",
+		.owner = THIS_MODULE,
+		.of_match_table = xilinx_vdmatest_of_ids,
+	},
+	.probe = xilinx_vdmatest_probe,
+	.remove = xilinx_vdmatest_remove,
+};
+
+module_platform_driver(xilinx_vdmatest_driver);
 
 MODULE_AUTHOR("Xilinx, Inc.");
 MODULE_DESCRIPTION("Xilinx AXI VDMA Test Client");

@@ -20,8 +20,10 @@
 #include <linux/device.h>
 #include <linux/syscore_ops.h>
 #include <linux/serial_core.h>
+#include <linux/serial_s3c.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/reboot.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -42,7 +44,6 @@
 #include <plat/nand-core.h>
 #include <plat/pll.h>
 #include <plat/pm.h>
-#include <plat/regs-serial.h>
 #include <plat/regs-spi.h>
 
 #include "common.h"
@@ -129,9 +130,9 @@ static void s3c2412_idle(void)
 	cpu_do_idle();
 }
 
-void s3c2412_restart(char mode, const char *cmd)
+void s3c2412_restart(enum reboot_mode mode, const char *cmd)
 {
-	if (mode == 's')
+	if (mode == REBOOT_SOFT)
 		soft_restart(0);
 
 	/* errata "Watch-dog/Software Reset Problem" specifies that

@@ -14,8 +14,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  ***************************************************************************
  * Rewritten, heavily based on smsc911x simple driver by SMSC.
@@ -440,7 +439,8 @@ static int smsc911x_request_resources(struct platform_device *pdev)
 	/* Request clock */
 	pdata->clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(pdata->clk))
-		netdev_warn(ndev, "couldn't get clock %li\n", PTR_ERR(pdata->clk));
+		dev_dbg(&pdev->dev, "couldn't get clock %li\n",
+			PTR_ERR(pdata->clk));
 
 	return ret;
 }
@@ -1673,7 +1673,7 @@ static int smsc911x_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	pdata->ops->tx_writefifo(pdata, (unsigned int *)bufp, wrsz);
 	freespace -= (skb->len + 32);
 	skb_tx_timestamp(skb);
-	dev_kfree_skb(skb);
+	dev_consume_skb_any(skb);
 
 	if (unlikely(smsc911x_tx_get_txstatcount(pdata) >= 30))
 		smsc911x_tx_update_txcounters(dev);
@@ -2167,7 +2167,7 @@ static int smsc911x_init(struct net_device *dev)
 		udelay(1000);
 
 	if (to == 0) {
-		pr_err("Device not READY in 100ms aborting\n");
+		netdev_err(dev, "Device not READY in 100ms aborting\n");
 		return -ENODEV;
 	}
 
@@ -2284,7 +2284,6 @@ static int smsc911x_drv_remove(struct platform_device *pdev)
 	mdiobus_unregister(pdata->mii_bus);
 	mdiobus_free(pdata->mii_bus);
 
-	platform_set_drvdata(pdev, NULL);
 	unregister_netdev(dev);
 	free_irq(dev->irq, dev);
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
@@ -2375,13 +2374,11 @@ static int smsc911x_drv_probe(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	struct net_device *dev;
 	struct smsc911x_data *pdata;
-	struct smsc911x_platform_config *config = pdev->dev.platform_data;
+	struct smsc911x_platform_config *config = dev_get_platdata(&pdev->dev);
 	struct resource *res, *irq_res;
 	unsigned int intcfg = 0;
 	int res_size, irq_flags;
 	int retval;
-
-	pr_info("Driver version %s\n", SMSC_DRV_VERSION);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 					   "smsc911x-memory");
@@ -2503,7 +2500,7 @@ static int smsc911x_drv_probe(struct platform_device *pdev)
 		SMSC_TRACE(pdata, probe,
 			   "MAC Address is specified by configuration");
 	} else if (is_valid_ether_addr(pdata->config.mac)) {
-		memcpy(dev->dev_addr, pdata->config.mac, 6);
+		memcpy(dev->dev_addr, pdata->config.mac, ETH_ALEN);
 		SMSC_TRACE(pdata, probe,
 			   "MAC Address specified by platform data");
 	} else {
@@ -2539,7 +2536,6 @@ out_disable_resources:
 out_enable_resources_fail:
 	smsc911x_free_resources(pdev);
 out_request_resources_fail:
-	platform_set_drvdata(pdev, NULL);
 	iounmap(pdata->ioaddr);
 	free_netdev(dev);
 out_release_io_1:

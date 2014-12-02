@@ -6,7 +6,6 @@
  * This file is released under the GPLv2.
  */
 
-#include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
@@ -42,7 +41,7 @@
 	struct gpd_timing_data *__td = &dev_gpd_data(dev)->td;			\
 	if (!__retval && __elapsed > __td->field) {				\
 		__td->field = __elapsed;					\
-		dev_warn(dev, name " latency exceeded, new value %lld ns\n",	\
+		dev_dbg(dev, name " latency exceeded, new value %lld ns\n",	\
 			__elapsed);						\
 		genpd->max_off_time_changed = true;				\
 		__td->constraint_changed = true;				\
@@ -706,12 +705,25 @@ static int pm_genpd_runtime_resume(struct device *dev)
 	return 0;
 }
 
+static bool pd_ignore_unused;
+static int __init pd_ignore_unused_setup(char *__unused)
+{
+	pd_ignore_unused = true;
+	return 1;
+}
+__setup("pd_ignore_unused", pd_ignore_unused_setup);
+
 /**
  * pm_genpd_poweroff_unused - Power off all PM domains with no devices in use.
  */
 void pm_genpd_poweroff_unused(void)
 {
 	struct generic_pm_domain *genpd;
+
+	if (pd_ignore_unused) {
+		pr_warn("genpd: Not disabling unused power domains\n");
+		return;
+	}
 
 	mutex_lock(&gpd_list_lock);
 
@@ -2143,7 +2155,6 @@ void pm_genpd_init(struct generic_pm_domain *genpd,
 	genpd->max_off_time_changed = true;
 	genpd->domain.ops.runtime_suspend = pm_genpd_runtime_suspend;
 	genpd->domain.ops.runtime_resume = pm_genpd_runtime_resume;
-	genpd->domain.ops.runtime_idle = pm_generic_runtime_idle;
 	genpd->domain.ops.prepare = pm_genpd_prepare;
 	genpd->domain.ops.suspend = pm_genpd_suspend;
 	genpd->domain.ops.suspend_late = pm_genpd_suspend_late;

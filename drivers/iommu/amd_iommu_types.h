@@ -25,6 +25,7 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/pci.h>
+#include <linux/irqreturn.h>
 
 /*
  * Maximum number of IOMMUs supported
@@ -37,9 +38,6 @@
 #define DEV_TABLE_ENTRY_SIZE		32
 #define ALIAS_TABLE_ENTRY_SIZE		2
 #define RLOOKUP_TABLE_ENTRY_SIZE	(sizeof(void *))
-
-/* Length of the MMIO region for the AMD IOMMU */
-#define MMIO_REGION_LENGTH       0x4000
 
 /* Capability offsets used by the driver */
 #define MMIO_CAP_HDR_OFFSET	0x00
@@ -78,6 +76,10 @@
 #define MMIO_STATUS_OFFSET	0x2020
 #define MMIO_PPR_HEAD_OFFSET	0x2030
 #define MMIO_PPR_TAIL_OFFSET	0x2038
+#define MMIO_CNTR_CONF_OFFSET	0x4000
+#define MMIO_CNTR_REG_OFFSET	0x40000
+#define MMIO_REG_END_OFFSET	0x80000
+
 
 
 /* Extended Feature Bits */
@@ -97,7 +99,12 @@
 #define FEATURE_GLXVAL_SHIFT	14
 #define FEATURE_GLXVAL_MASK	(0x03ULL << FEATURE_GLXVAL_SHIFT)
 
-#define PASID_MASK		0x000fffff
+/* Note:
+ * The current driver only support 16-bit PASID.
+ * Currently, hardware only implement upto 16-bit PASID
+ * even though the spec says it could have upto 20 bits.
+ */
+#define PASID_MASK		0x0000ffff
 
 /* MMIO status bits */
 #define MMIO_STATUS_EVT_INT_MASK	(1 << 1)
@@ -507,6 +514,10 @@ struct amd_iommu {
 
 	/* physical address of MMIO space */
 	u64 mmio_phys;
+
+	/* physical end address of MMIO space */
+	u64 mmio_phys_end;
+
 	/* virtual address of MMIO space */
 	u8 __iomem *mmio_base;
 
@@ -584,6 +595,10 @@ struct amd_iommu {
 
 	/* The l2 indirect registers */
 	u32 stored_l2[0x83];
+
+	/* The maximum PC banks and counters/bank (PCSup=1) */
+	u8 max_banks;
+	u8 max_counters;
 };
 
 struct devid_map {
@@ -687,8 +702,8 @@ extern unsigned long *amd_iommu_pd_alloc_bitmap;
  */
 extern u32 amd_iommu_unmap_flush;
 
-/* Smallest number of PASIDs supported by any IOMMU in the system */
-extern u32 amd_iommu_max_pasids;
+/* Smallest max PASID supported by any IOMMU in the system */
+extern u32 amd_iommu_max_pasid;
 
 extern bool amd_iommu_v2_present;
 
