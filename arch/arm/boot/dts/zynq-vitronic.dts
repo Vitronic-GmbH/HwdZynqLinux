@@ -82,12 +82,12 @@
 			
         partition@qspi-fsbl-bitstream-uboot {
             label = "qspi-fsbl-bitstream-uboot";
-            reg = <0x0 0x1000000>;
-        };
-
+            reg = <0x0 0x800000>;
+         };
+        
         partition@qspi-user {
             label = "qspi-user";
-            reg = <0x1000000 0x1000000>;
+            reg = <0x800000 0x1800000>;
         };
     };
 };
