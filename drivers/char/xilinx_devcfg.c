@@ -154,6 +154,7 @@ struct fclk_data {
 	int enabled;
 	unsigned long rate_rnd;
 };
+#include <linux/delay.h>
 
 /* Register read/write access routines */
 #define xdevcfg_writereg(offset, val)	__raw_writel(val, offset)
@@ -186,6 +187,9 @@ static void xdevcfg_reset_pl(void __iomem *base_address)
 			XDCFG_STATUS_PCFG_INIT_MASK)
 		;
 
+    /* aas: need a longer reset if using efuse */
+    udelay(1000);
+    
 	xdevcfg_writereg(base_address + XDCFG_CTRL_OFFSET,
 			(xdevcfg_readreg(base_address + XDCFG_CTRL_OFFSET) |
 			 XDCFG_CTRL_PCFG_PROG_B_MASK));
