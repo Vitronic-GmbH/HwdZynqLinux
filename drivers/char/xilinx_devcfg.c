@@ -119,6 +119,7 @@ static const char * const fclk_name[] = {
  * @lock: Instance of spinlock
  * @base_address: The virtual device base address of the device registers
  * @is_partial_bitstream: Status bit to indicate partial/full bitstream
+ * @fpga_reload_count: shows the number of FPGA reloads since last reboot
  */
 struct xdevcfg_drvdata {
 	struct device *dev;
@@ -141,6 +142,7 @@ struct xdevcfg_drvdata {
 	bool endian_swap;
 	char residue_buf[3];
 	int residue_len;
+	int fpga_reload_count;
 };
 
 /**
@@ -302,6 +304,7 @@ xdevcfg_write(struct file *file, const char __user *buf, size_t count,
 			count -= i;
 			memmove(kbuf, kbuf + i, count);
 		}
+		drvdata->fpga_reload_count++;
 	}
 
 	/* Save stragglers for next time */
@@ -1572,6 +1575,62 @@ static DEVICE_ATTR(is_partial_bitstream, 0644,
 				xdevcfg_show_is_partial_bitstream_status,
 				xdevcfg_set_is_partial_bitstream);
 
+
+static unsigned char fsbl_version[16];
+
+/**
+ *  get_fsbl_version -this function reads the version
+ *  information passed by FSBL
+ */
+void get_fsbl_version(void){
+    int32_t i           = 0;
+    void __iomem * addr = NULL;
+
+    addr = ioremap(0x3FFFFFF0, 16);
+    if(addr){
+        for(i=0;i<16;i++) fsbl_version[i]=ioread8(addr+i);
+        iounmap(addr);
+    }
+}
+
+/**
+ * xdevcfg_fsbl_version - This function returns the FSBL Version.
+ * @dev:	Pointer to the device structure.
+ * @attr:	Pointer to the device attribute structure.
+ * @buf:	Pointer to the buffer location for the configuration
+ *          data.
+ * returns:	size of the buffer.
+ */
+static ssize_t xdevcfg_fsbl_version(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+    size_t status=0;
+	status = sprintf(buf, "%s\n", fsbl_version);
+	return status;
+}
+
+static DEVICE_ATTR(fsbl_version, 0644, xdevcfg_fsbl_version, NULL);
+
+/**
+ * xdevcfg_fpga_reload_count - This function returns the FPGA reload counter.
+ * @dev:	Pointer to the device structure.
+ * @attr:	Pointer to the device attribute structure.
+ * @buf:	Pointer to the buffer location for the configuration
+ *          data.
+ * returns:	size of the buffer.
+ */
+static ssize_t xdevcfg_fpga_reload_count(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	ssize_t status=0;
+	struct xdevcfg_drvdata *drvdata = dev_get_drvdata(dev);
+
+	status = sprintf(buf, "%d\n", drvdata->fpga_reload_count);
+	return status;
+}
+
+static DEVICE_ATTR(fpga_reload_count, 0644, xdevcfg_fpga_reload_count, NULL);
+
 static const struct attribute *xdevcfg_attrs[] = {
 	&dev_attr_prog_done.attr, /* PCFG_DONE bit in Intr Status register */
 	&dev_attr_dbg_lock.attr, /* Debug lock bit in Lock register */
@@ -1585,6 +1644,8 @@ static const struct attribute *xdevcfg_attrs[] = {
 	&dev_attr_enable_dbg_in.attr, /* DBGEN bit in Control register */
 	&dev_attr_enable_dap.attr, /* DAP_EN bits in Control register */
 	&dev_attr_is_partial_bitstream.attr, /* Flag for partial bitstream */
+	&dev_attr_fsbl_version.attr, /* FSBL version */
+	&dev_attr_fpga_reload_count.attr, /* number of FPGA reloads since last reboot */
 	NULL,
 };
 
@@ -1924,6 +1985,7 @@ static int xdevcfg_drv_probe(struct platform_device *pdev)
 	drvdata->is_partial_bitstream = 0;
 	drvdata->dma_done = 0;
 	drvdata->error_status = 0;
+	drvdata->fpga_reload_count = 0;
 	dev_info(&pdev->dev, "ioremap %pa to %p\n",
 		 &res->start, drvdata->base_address);
 
@@ -2019,6 +2081,8 @@ static int xdevcfg_drv_probe(struct platform_device *pdev)
 	xdevcfg_fclk_init(&pdev->dev);
 
 	clk_disable(drvdata->clk);
+
+	get_fsbl_version();
 
 	return 0;		/* Success */
 
